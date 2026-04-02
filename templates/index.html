@@ -16,7 +16,6 @@
             <a href="/settings" class="btn btn-outline btn-sm" style="margin-top:4px;">Settings</a>
         </div>
 
-        {% set total_cals = founders | sum(attribute='calendars') %}
         {% set founders_with_cals = founders | selectattr('calendars') | list | length %}
 
         {% if founders_with_cals < 2 %}
