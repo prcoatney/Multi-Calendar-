@@ -2,6 +2,7 @@
 
 import os
 import json
+import tempfile
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -15,15 +16,29 @@ TOKEN_DIR = os.path.join(os.path.dirname(__file__), "tokens")
 os.makedirs(TOKEN_DIR, exist_ok=True)
 
 
+def _get_credentials_path() -> str:
+    """Get or create credentials.json from env var or local file."""
+    local_path = os.path.join(os.path.dirname(__file__), "credentials.json")
+    if os.path.exists(local_path):
+        return local_path
+
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        # Write env var to a temp file so the OAuth library can read it
+        tmp = os.path.join(os.path.dirname(__file__), ".credentials_tmp.json")
+        with open(tmp, "w") as f:
+            f.write(creds_json)
+        return tmp
+
+    raise FileNotFoundError(
+        "credentials.json not found and GOOGLE_CREDENTIALS_JSON env var not set. "
+        "Download credentials from Google Cloud Console or set the env var."
+    )
+
+
 def get_flow(redirect_uri: str) -> Flow:
     """Create an OAuth flow from the client credentials file."""
-    credentials_path = os.path.join(os.path.dirname(__file__), "credentials.json")
-    if not os.path.exists(credentials_path):
-        raise FileNotFoundError(
-            "credentials.json not found. Download it from Google Cloud Console "
-            "(APIs & Services > Credentials > OAuth 2.0 Client ID > Download JSON) "
-            "and place it in the project root."
-        )
+    credentials_path = _get_credentials_path()
     flow = Flow.from_client_secrets_file(
         credentials_path,
         scopes=SCOPES,
