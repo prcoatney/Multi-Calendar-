@@ -286,8 +286,8 @@
                 const resp = await fetch('/api/auth/status');
                 const statuses = await resp.json();
                 const grid = document.getElementById('authGrid');
-                const names = ['Founder 1', 'Founder 2', 'Founder 3'];
-                const ids = ['founder1', 'founder2', 'founder3'];
+                const names = [{% for f in founders %}'{{ f.name }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+                const ids = [{% for f in founders %}'{{ f.id }}'{% if not loop.last %}, {% endif %}{% endfor %}];
 
                 grid.innerHTML = ids.map((id, i) => `
                     <div class="auth-card">
