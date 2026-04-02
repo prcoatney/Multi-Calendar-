@@ -21,7 +21,31 @@ from google_calendar import (
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
 
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "domcal")
 FOUNDER_IDS = ["founder1", "founder2", "founder3"]
+
+
+@app.before_request
+def require_login():
+    """Gate every route behind a simple password."""
+    open_routes = ("login", "static")
+    if request.endpoint in open_routes:
+        return
+    if not session.get("authenticated"):
+        return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Simple password gate."""
+    error = None
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if pw == APP_PASSWORD:
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        error = "Wrong password."
+    return render_template("login.html", error=error)
 
 
 @app.route("/")

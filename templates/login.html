@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dominion — Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container" style="display:flex; align-items:center; justify-content:center; min-height:80vh;">
+        <div class="card" style="max-width:380px; width:100%; text-align:center;">
+            <h1 style="font-size:24px; margin-bottom:4px;">Dominion</h1>
+            <p class="subtitle" style="margin-bottom:24px;">Founder Scheduler</p>
+
+            {% if error %}
+            <div class="message message-error" style="margin-bottom:16px;">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/login">
+                <div class="form-group">
+                    <input type="password" name="password" placeholder="Password" autofocus
+                           style="text-align:center; font-size:16px;">
+                </div>
+                <button type="submit" class="btn btn-primary">Enter</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
