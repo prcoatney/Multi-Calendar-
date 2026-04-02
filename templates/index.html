@@ -16,12 +16,13 @@
             <a href="/settings" class="btn btn-outline btn-sm" style="margin-top:4px;">Settings</a>
         </div>
 
-        {% set has_urls = founders | selectattr('ical_url') | list | length >= 2 %}
+        {% set total_cals = founders | sum(attribute='calendars') %}
+        {% set founders_with_cals = founders | selectattr('calendars') | list | length %}
 
-        {% if not has_urls %}
+        {% if founders_with_cals < 2 %}
         <div class="card" style="border-color: rgba(234,179,8,0.3);">
             <p style="color:#fbbf24; font-size:14px; font-weight:500;">
-                Calendar URLs not configured yet.
+                Not enough calendars configured.
                 <a href="/settings" style="color:#34D399;">Go to Settings</a> to add founder iCal URLs.
             </p>
         </div>
@@ -41,9 +42,13 @@
                     {% for f in founders %}
                     <div class="founder-row">
                         <span class="founder-name">{{ f.name }}</span>
-                        <span class="founder-status {{ 'configured' if f.ical_url else 'missing' }}">
-                            {{ 'Connected' if f.ical_url else 'No URL' }}
+                        {% if f.calendars | length > 0 %}
+                        <span class="founder-status configured">
+                            {{ f.calendars | length }} calendar{{ 's' if f.calendars | length > 1 else '' }}
                         </span>
+                        {% else %}
+                        <span class="founder-status missing">No calendars</span>
+                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -102,7 +107,7 @@
                         </select>
                     </div>
                 </div>
-                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()" {% if not has_urls %}disabled{% endif %}>
+                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()" {% if founders_with_cals < 2 %}disabled{% endif %}>
                     Find Available Times
                 </button>
             </div>

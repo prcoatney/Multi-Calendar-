@@ -10,7 +10,7 @@ from flask import Flask, request, jsonify, redirect, render_template, session, u
 import pytz
 
 from calendar_utils import find_available_slots
-from db import get_founders, save_founder_url, save_founder_name
+from db import get_founders, get_all_ical_urls, add_calendar, remove_calendar, save_founder_name
 from google_calendar import (
     get_auth_url,
     handle_oauth_callback,
@@ -68,22 +68,35 @@ def api_get_founders():
     return jsonify(get_founders())
 
 
-@app.route("/api/founders", methods=["POST"])
-def api_save_founders():
-    """Save founder names and iCal URLs."""
+@app.route("/api/calendars", methods=["POST"])
+def api_add_calendar():
+    """Add a calendar URL for a founder."""
     data = request.get_json()
-    if not data or "founders" not in data:
-        return jsonify({"error": "Request body must include founders array"}), 400
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
 
-    for f in data["founders"]:
-        fid = f.get("id")
-        if fid not in FOUNDER_IDS:
-            continue
-        if "name" in f:
-            save_founder_name(fid, f["name"])
-        if "ical_url" in f:
-            save_founder_url(fid, f["ical_url"])
+    fid = data.get("founder_id")
+    label = data.get("label", "Main")
+    ical_url = data.get("ical_url", "")
 
+    if fid not in FOUNDER_IDS:
+        return jsonify({"error": "Invalid founder ID"}), 400
+    if not ical_url or not ical_url.startswith("https://"):
+        return jsonify({"error": "Valid HTTPS URL required"}), 400
+
+    add_calendar(fid, label, ical_url)
+    return jsonify({"success": True})
+
+
+@app.route("/api/calendars/<int:cal_id>", methods=["DELETE"])
+def api_remove_calendar(cal_id):
+    """Remove a calendar by ID."""
+    data = request.get_json() or {}
+    fid = data.get("founder_id", "")
+    if fid not in FOUNDER_IDS:
+        return jsonify({"error": "Invalid founder ID"}), 400
+
+    remove_calendar(cal_id, fid)
     return jsonify({"success": True})
 
 
@@ -95,12 +108,11 @@ def find_availability():
     """
     data = request.get_json() or {}
 
-    # Load URLs from database
-    founders = get_founders()
-    ical_urls = [f["ical_url"] for f in founders if f["ical_url"]]
+    # Load all calendar URLs from database
+    ical_urls = get_all_ical_urls()
 
     if len(ical_urls) < 2:
-        return jsonify({"error": "Not enough iCal URLs configured. Go to Settings to add them."}), 400
+        return jsonify({"error": "Not enough calendars configured. Go to Settings to add them."}), 400
 
     # Validate URLs
     for url in ical_urls:

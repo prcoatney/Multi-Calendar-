@@ -19,10 +19,34 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS founders (
             id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            ical_url TEXT DEFAULT ''
+            name TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS calendars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            founder_id TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT 'Main',
+            ical_url TEXT NOT NULL,
+            FOREIGN KEY (founder_id) REFERENCES founders(id)
+        )
+    """)
+    # Migrate: if old ical_url column exists on founders, move data to calendars
+    try:
+        rows = conn.execute("SELECT id, ical_url FROM founders WHERE ical_url != ''").fetchall()
+        for row in rows:
+            existing = conn.execute(
+                "SELECT 1 FROM calendars WHERE founder_id = ? AND ical_url = ?",
+                (row["id"], row["ical_url"]),
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO calendars (founder_id, label, ical_url) VALUES (?, 'Main', ?)",
+                    (row["id"], row["ical_url"]),
+                )
+    except sqlite3.OperationalError:
+        pass  # Column doesn't exist, no migration needed
+
     # Seed the 3 founders if they don't exist
     defaults = [
         ("founder1", "Erik"),
@@ -39,19 +63,49 @@ def init_db():
 
 
 def get_founders():
-    """Return all founders with their iCal URLs."""
+    """Return all founders with their calendars."""
     conn = get_db()
-    rows = conn.execute("SELECT id, name, ical_url FROM founders ORDER BY id").fetchall()
+    founders = conn.execute("SELECT id, name FROM founders ORDER BY id").fetchall()
+    result = []
+    for f in founders:
+        cals = conn.execute(
+            "SELECT id, label, ical_url FROM calendars WHERE founder_id = ? ORDER BY id",
+            (f["id"],),
+        ).fetchall()
+        result.append({
+            "id": f["id"],
+            "name": f["name"],
+            "calendars": [dict(c) for c in cals],
+        })
     conn.close()
-    return [dict(r) for r in rows]
+    return result
 
 
-def save_founder_url(founder_id, ical_url):
-    """Save or update a founder's iCal URL."""
+def get_all_ical_urls():
+    """Return a flat list of all iCal URLs across all founders."""
+    conn = get_db()
+    rows = conn.execute("SELECT ical_url FROM calendars ORDER BY founder_id, id").fetchall()
+    conn.close()
+    return [r["ical_url"] for r in rows]
+
+
+def add_calendar(founder_id, label, ical_url):
+    """Add a calendar URL for a founder."""
     conn = get_db()
     conn.execute(
-        "UPDATE founders SET ical_url = ? WHERE id = ?",
-        (ical_url, founder_id),
+        "INSERT INTO calendars (founder_id, label, ical_url) VALUES (?, ?, ?)",
+        (founder_id, label, ical_url),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_calendar(calendar_id, founder_id):
+    """Remove a calendar by ID (scoped to founder for safety)."""
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM calendars WHERE id = ? AND founder_id = ?",
+        (calendar_id, founder_id),
     )
     conn.commit()
     conn.close()

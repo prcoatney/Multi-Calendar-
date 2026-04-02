@@ -450,11 +450,47 @@ h2 {
   border: 1px solid rgba(234,179,8,0.2);
 }
 
-.url-masked {
+.cal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 10px 14px;
   background: var(--dom-stone-light);
   border: 1px solid var(--dom-stone-border);
   border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+
+.cal-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cal-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dom-emerald);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cal-masked {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--dom-gray-600);
+  letter-spacing: 2px;
+}
+
+.btn-danger {
+  color: #f87171;
+  border-color: rgba(248,113,113,0.25);
+}
+
+.btn-danger:hover {
+  background: rgba(248,113,113,0.1);
+  border-color: rgba(248,113,113,0.4);
+  color: #fca5a5;
 }
 
 /* ── Hidden ── */
