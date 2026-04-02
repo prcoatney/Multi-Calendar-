@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Founder Calendar Scheduler</title>
+    <title>Dominion — Founder Scheduler</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -364,6 +364,17 @@
             el.classList.remove('hidden');
             setTimeout(() => el.classList.add('hidden'), 6000);
         }
+
+        // Persist iCal URLs in localStorage
+        const icalFields = ['ical1', 'ical2', 'ical3'];
+        icalFields.forEach(id => {
+            const el = document.getElementById(id);
+            const saved = localStorage.getItem(`dominion_${id}`);
+            if (saved) el.value = saved;
+            el.addEventListener('input', () => {
+                localStorage.setItem(`dominion_${id}`, el.value);
+            });
+        });
 
         // Check if returning from OAuth
         const params = new URLSearchParams(window.location.search);
