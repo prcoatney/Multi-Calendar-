@@ -406,6 +406,57 @@ h2 {
   border-bottom-color: var(--dom-emerald);
 }
 
+/* ── Founder rows ── */
+.founder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.founder-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--dom-stone-light);
+  border: 1px solid var(--dom-stone-border);
+  border-radius: var(--radius);
+}
+
+.founder-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--dom-white);
+}
+
+.founder-status {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+
+.founder-status.configured {
+  background: var(--dom-mint-dim);
+  color: var(--dom-emerald);
+  border: 1px solid var(--dom-mint-border);
+}
+
+.founder-status.missing {
+  background: rgba(234,179,8,0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(234,179,8,0.2);
+}
+
+.url-masked {
+  padding: 10px 14px;
+  background: var(--dom-stone-light);
+  border: 1px solid var(--dom-stone-border);
+  border-radius: var(--radius);
+}
+
 /* ── Hidden ── */
 .hidden {
   display: none !important;

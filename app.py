@@ -10,6 +10,7 @@ from flask import Flask, request, jsonify, redirect, render_template, session, u
 import pytz
 
 from calendar_utils import find_available_slots
+from db import get_founders, save_founder_url, save_founder_name
 from google_calendar import (
     get_auth_url,
     handle_oauth_callback,
@@ -26,32 +27,58 @@ FOUNDER_IDS = ["founder1", "founder2", "founder3"]
 @app.route("/")
 def index():
     """Render the main page."""
-    return render_template("index.html")
+    founders = get_founders()
+    return render_template("index.html", founders=founders)
+
+
+@app.route("/settings")
+def settings():
+    """Render the settings page for managing founder iCal URLs."""
+    founders = get_founders()
+    return render_template("settings.html", founders=founders)
+
+
+@app.route("/api/founders", methods=["GET"])
+def api_get_founders():
+    """Return all founders with their saved iCal URLs."""
+    return jsonify(get_founders())
+
+
+@app.route("/api/founders", methods=["POST"])
+def api_save_founders():
+    """Save founder names and iCal URLs."""
+    data = request.get_json()
+    if not data or "founders" not in data:
+        return jsonify({"error": "Request body must include founders array"}), 400
+
+    for f in data["founders"]:
+        fid = f.get("id")
+        if fid not in FOUNDER_IDS:
+            continue
+        if "name" in f:
+            save_founder_name(fid, f["name"])
+        if "ical_url" in f:
+            save_founder_url(fid, f["ical_url"])
+
+    return jsonify({"success": True})
 
 
 @app.route("/api/find-availability", methods=["POST"])
 def find_availability():
     """Find available meeting slots across all founders.
 
-    Expects JSON body:
-    {
-        "ical_urls": ["url1", "url2", "url3"],
-        "duration_minutes": 60,
-        "days_ahead": 5,
-        "work_hours_start": 9,
-        "work_hours_end": 17,
-        "timezone": "America/New_York"
-    }
+    Uses saved iCal URLs from the database. Optional overrides via JSON body.
     """
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Request body must be JSON"}), 400
+    data = request.get_json() or {}
 
-    ical_urls = data.get("ical_urls", [])
-    if not ical_urls or len(ical_urls) < 2:
-        return jsonify({"error": "Provide at least 2 iCal URLs"}), 400
+    # Load URLs from database
+    founders = get_founders()
+    ical_urls = [f["ical_url"] for f in founders if f["ical_url"]]
 
-    # Validate URLs are actual iCal URLs (basic check)
+    if len(ical_urls) < 2:
+        return jsonify({"error": "Not enough iCal URLs configured. Go to Settings to add them."}), 400
+
+    # Validate URLs
     for url in ical_urls:
         if not url.startswith("https://"):
             return jsonify({"error": f"Invalid URL (must be HTTPS): {url}"}), 400

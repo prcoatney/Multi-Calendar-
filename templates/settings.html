@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dominion — Settings</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+            <div>
+                <h1>Settings</h1>
+                <p class="subtitle">Each founder pastes their iCal URL and locks it in</p>
+            </div>
+            <a href="/" class="btn btn-outline btn-sm" style="margin-top:4px;">Back</a>
+        </div>
+
+        <div class="card" style="margin-bottom:12px;">
+            <p style="font-size:13px; color:#6b7280; margin-bottom:0;">
+                In Google Calendar: Settings &rarr; your calendar &rarr; scroll to
+                "Secret address in iCal format" &rarr; copy the URL.
+            </p>
+        </div>
+
+        {% for f in founders %}
+        <div class="card" id="card-{{ f.id }}">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h2 style="margin-bottom:0;">{{ f.name }}</h2>
+                {% if f.ical_url %}
+                <span class="founder-status configured">Locked in</span>
+                {% else %}
+                <span class="founder-status missing">Not set</span>
+                {% endif %}
+            </div>
+
+            {% if f.ical_url %}
+            <div class="url-masked">
+                <span style="font-family:monospace; font-size:14px; color:#6b7280; letter-spacing:2px;">
+                    &#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;
+                </span>
+            </div>
+            {% else %}
+            <div class="form-group" style="margin-bottom:12px;">
+                <label>iCal URL</label>
+                <input type="url" id="url-{{ f.id }}" placeholder="https://calendar.google.com/calendar/ical/...">
+            </div>
+            <button class="btn btn-primary" onclick="saveUrl('{{ f.id }}')" id="save-{{ f.id }}">
+                Lock It In
+            </button>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <!-- Result message -->
+        <div id="resultMessage" class="hidden"></div>
+    </div>
+
+    <script>
+        async function saveUrl(founderId) {
+            const input = document.getElementById(`url-${founderId}`);
+            const url = input.value.trim();
+
+            if (!url) {
+                showMessage('Paste your iCal URL first.', 'error');
+                return;
+            }
+
+            if (!url.startsWith('https://')) {
+                showMessage('URL must start with https://', 'error');
+                return;
+            }
+
+            const btn = document.getElementById(`save-${founderId}`);
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+
+            try {
+                const resp = await fetch('/api/founders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        founders: [{ id: founderId, ical_url: url }]
+                    }),
+                });
+
+                const data = await resp.json();
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to save', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Lock It In';
+                    return;
+                }
+
+                showMessage('Saved. Reloading...', 'success');
+                setTimeout(() => window.location.reload(), 800);
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Lock It In';
+            }
+        }
+
+        function showMessage(text, type) {
+            const el = document.getElementById('resultMessage');
+            el.className = `message message-${type}`;
+            el.textContent = text;
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 6000);
+        }
+    </script>
+</body>
+</html>

@@ -8,8 +8,24 @@
 </head>
 <body>
     <div class="container">
-        <h1>Founder Calendar Scheduler</h1>
-        <p class="subtitle">Find mutual availability and schedule meetings across all 3 founders</p>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+            <div>
+                <h1>Founder Scheduler</h1>
+                <p class="subtitle">Find mutual availability and schedule meetings</p>
+            </div>
+            <a href="/settings" class="btn btn-outline btn-sm" style="margin-top:4px;">Settings</a>
+        </div>
+
+        {% set has_urls = founders | selectattr('ical_url') | list | length >= 2 %}
+
+        {% if not has_urls %}
+        <div class="card" style="border-color: rgba(234,179,8,0.3);">
+            <p style="color:#fbbf24; font-size:14px; font-weight:500;">
+                Calendar URLs not configured yet.
+                <a href="/settings" style="color:#34D399;">Go to Settings</a> to add founder iCal URLs.
+            </p>
+        </div>
+        {% endif %}
 
         <div class="steps">
             <div class="step active" id="step1-indicator">1. Find Availability</div>
@@ -17,25 +33,19 @@
             <div class="step" id="step3-indicator">3. Schedule</div>
         </div>
 
-        <!-- Step 1: iCal URLs + search params -->
+        <!-- Step 1: Search params only (URLs come from DB) -->
         <div id="step1">
             <div class="card">
-                <h2>Founder Calendar URLs</h2>
-                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
-                    Paste each founder's secret iCal address. In Google Calendar:
-                    Settings &rarr; Calendar &rarr; "Secret address in iCal format"
-                </p>
-                <div class="form-group">
-                    <label>Founder 1 - iCal URL</label>
-                    <input type="url" id="ical1" placeholder="https://calendar.google.com/calendar/ical/...">
-                </div>
-                <div class="form-group">
-                    <label>Founder 2 - iCal URL</label>
-                    <input type="url" id="ical2" placeholder="https://calendar.google.com/calendar/ical/...">
-                </div>
-                <div class="form-group">
-                    <label>Founder 3 - iCal URL</label>
-                    <input type="url" id="ical3" placeholder="https://calendar.google.com/calendar/ical/...">
+                <h2>Calendars</h2>
+                <div class="founder-list">
+                    {% for f in founders %}
+                    <div class="founder-row">
+                        <span class="founder-name">{{ f.name }}</span>
+                        <span class="founder-status {{ 'configured' if f.ical_url else 'missing' }}">
+                            {{ 'Connected' if f.ical_url else 'No URL' }}
+                        </span>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
 
@@ -92,7 +102,7 @@
                         </select>
                     </div>
                 </div>
-                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()">
+                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()" {% if not has_urls %}disabled{% endif %}>
                     Find Available Times
                 </button>
             </div>
@@ -102,7 +112,7 @@
         <div id="step2" class="hidden">
             <div class="card">
                 <h2>Available Time Slots</h2>
-                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
+                <p style="font-size:13px; color:#6b7280; margin-bottom:16px;">
                     These are times when all founders are free. Click one to select it.
                 </p>
                 <div id="slotsContainer"></div>
@@ -119,7 +129,7 @@
         <div id="step3" class="hidden">
             <div class="card">
                 <h2>Selected Meeting Time</h2>
-                <div id="selectedSlotDisplay" style="padding:12px; background:#f5f5f7; border-radius:8px; margin-bottom:16px;"></div>
+                <div id="selectedSlotDisplay" style="padding:12px; background:#242424; border-radius:8px; margin-bottom:16px; border:1px solid #333;"></div>
 
                 <div class="form-group">
                     <label>Meeting Title</label>
@@ -133,7 +143,7 @@
 
             <div class="card">
                 <h2>Google Calendar Authorization</h2>
-                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
+                <p style="font-size:13px; color:#6b7280; margin-bottom:16px;">
                     Each founder must authorize the app to add events to their calendar.
                 </p>
                 <div class="auth-grid" id="authGrid"></div>
@@ -176,17 +186,6 @@
         }
 
         async function findAvailability() {
-            const urls = [
-                document.getElementById('ical1').value.trim(),
-                document.getElementById('ical2').value.trim(),
-                document.getElementById('ical3').value.trim(),
-            ].filter(u => u);
-
-            if (urls.length < 2) {
-                showMessage('Please enter at least 2 iCal URLs.', 'error');
-                return;
-            }
-
             const btn = document.getElementById('findBtn');
             btn.disabled = true;
             btn.textContent = 'Searching...';
@@ -196,7 +195,6 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        ical_urls: urls,
                         duration_minutes: parseInt(document.getElementById('duration').value),
                         days_ahead: parseInt(document.getElementById('days_ahead').value),
                         work_hours_start: parseInt(document.getElementById('work_start').value),
@@ -238,11 +236,9 @@
                 const start = new Date(slot.start);
                 const end = new Date(slot.end);
 
-                // Calculate how many meeting-sized blocks fit
                 const totalMinutes = (end - start) / 60000;
                 const blockCount = Math.floor(totalMinutes / durationMin);
 
-                // Generate individual meeting-slot options
                 for (let b = 0; b < blockCount; b++) {
                     const blockStart = new Date(start.getTime() + b * durationMin * 60000);
                     const blockEnd = new Date(blockStart.getTime() + durationMin * 60000);
@@ -267,12 +263,7 @@
         function selectSlot(el, slotIdx, blockIdx) {
             document.querySelectorAll('.slot-item').forEach(s => s.classList.remove('selected'));
             el.classList.add('selected');
-
-            selectedSlot = {
-                start: el.dataset.start,
-                end: el.dataset.end,
-            };
-
+            selectedSlot = { start: el.dataset.start, end: el.dataset.end };
             document.getElementById('selectBtn').disabled = false;
         }
 
@@ -283,11 +274,7 @@
             const dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
             const startStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             const endStr = end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-            document.getElementById('selectedSlotDisplay').innerHTML = `
-                <strong>${dateStr}</strong><br>
-                ${startStr} - ${endStr}
-            `;
+            document.getElementById('selectedSlotDisplay').innerHTML = `<strong>${dateStr}</strong><br>${startStr} - ${endStr}`;
         }
 
         async function checkAuthStatus() {
@@ -295,7 +282,6 @@
                 const resp = await fetch('/api/auth/status');
                 const statuses = await resp.json();
                 const grid = document.getElementById('authGrid');
-
                 const names = ['Founder 1', 'Founder 2', 'Founder 3'];
                 const ids = ['founder1', 'founder2', 'founder3'];
 
@@ -309,18 +295,14 @@
                     </div>
                 `).join('');
 
-                const allAuthorized = ids.every(id => statuses[id]);
-                document.getElementById('scheduleBtn').disabled = !allAuthorized;
+                document.getElementById('scheduleBtn').disabled = !ids.every(id => statuses[id]);
             } catch (err) {
                 console.error('Failed to check auth status:', err);
             }
         }
 
         async function scheduleMeeting() {
-            if (!selectedSlot) {
-                showMessage('No time slot selected', 'error');
-                return;
-            }
+            if (!selectedSlot) { showMessage('No time slot selected', 'error'); return; }
 
             const btn = document.getElementById('scheduleBtn');
             btn.disabled = true;
@@ -339,15 +321,11 @@
                 });
 
                 const data = await resp.json();
-
                 if (!resp.ok) {
                     showMessage(data.error || 'Failed to schedule meeting', 'error');
-                    if (data.unauthorized) {
-                        checkAuthStatus();
-                    }
+                    if (data.unauthorized) checkAuthStatus();
                     return;
                 }
-
                 showMessage('Meeting scheduled on all founders\' calendars!', 'success');
             } catch (err) {
                 showMessage('Network error: ' + err.message, 'error');
@@ -365,18 +343,6 @@
             setTimeout(() => el.classList.add('hidden'), 6000);
         }
 
-        // Persist iCal URLs in localStorage
-        const icalFields = ['ical1', 'ical2', 'ical3'];
-        icalFields.forEach(id => {
-            const el = document.getElementById(id);
-            const saved = localStorage.getItem(`dominion_${id}`);
-            if (saved) el.value = saved;
-            el.addEventListener('input', () => {
-                localStorage.setItem(`dominion_${id}`, el.value);
-            });
-        });
-
-        // Check if returning from OAuth
         const params = new URLSearchParams(window.location.search);
         if (params.get('auth_success')) {
             showMessage(`${params.get('auth_success')} authorized successfully!`, 'success');

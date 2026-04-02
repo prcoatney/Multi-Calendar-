@@ -10,3 +10,5 @@ token_*.pickle
 *.pickle
 .DS_Store
 instance/
+dominion.db
+.credentials_tmp.json
