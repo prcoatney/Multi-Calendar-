@@ -20,6 +20,10 @@ from google_calendar import (
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
+app.config["PREFERRED_URL_SCHEME"] = "https"
+
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "domcal")
 FOUNDER_IDS = ["founder1", "founder2", "founder3"]
