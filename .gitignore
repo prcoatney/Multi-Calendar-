@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.env
+.env
+venv/
+.venv/
+credentials.json
+token_*.json
+token_*.pickle
+*.pickle
+.DS_Store
+instance/

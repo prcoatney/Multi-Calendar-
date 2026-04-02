@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Founder Calendar Scheduler</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Founder Calendar Scheduler</h1>
+        <p class="subtitle">Find mutual availability and schedule meetings across all 3 founders</p>
+
+        <div class="steps">
+            <div class="step active" id="step1-indicator">1. Find Availability</div>
+            <div class="step" id="step2-indicator">2. Pick a Slot</div>
+            <div class="step" id="step3-indicator">3. Schedule</div>
+        </div>
+
+        <!-- Step 1: iCal URLs + search params -->
+        <div id="step1">
+            <div class="card">
+                <h2>Founder Calendar URLs</h2>
+                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
+                    Paste each founder's secret iCal address. In Google Calendar:
+                    Settings &rarr; Calendar &rarr; "Secret address in iCal format"
+                </p>
+                <div class="form-group">
+                    <label>Founder 1 - iCal URL</label>
+                    <input type="url" id="ical1" placeholder="https://calendar.google.com/calendar/ical/...">
+                </div>
+                <div class="form-group">
+                    <label>Founder 2 - iCal URL</label>
+                    <input type="url" id="ical2" placeholder="https://calendar.google.com/calendar/ical/...">
+                </div>
+                <div class="form-group">
+                    <label>Founder 3 - iCal URL</label>
+                    <input type="url" id="ical3" placeholder="https://calendar.google.com/calendar/ical/...">
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Meeting Preferences</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Meeting Duration</label>
+                        <select id="duration">
+                            <option value="30">30 minutes</option>
+                            <option value="60" selected>1 hour</option>
+                            <option value="90">1.5 hours</option>
+                            <option value="120">2 hours</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Search Window</label>
+                        <select id="days_ahead">
+                            <option value="3">Next 3 days</option>
+                            <option value="5" selected>Next 5 days</option>
+                            <option value="7">Next 7 days</option>
+                            <option value="14">Next 14 days</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Work Hours</label>
+                        <div class="form-row">
+                            <select id="work_start">
+                                <option value="7">7 AM</option>
+                                <option value="8">8 AM</option>
+                                <option value="9" selected>9 AM</option>
+                                <option value="10">10 AM</option>
+                            </select>
+                            <select id="work_end">
+                                <option value="16">4 PM</option>
+                                <option value="17" selected>5 PM</option>
+                                <option value="18">6 PM</option>
+                                <option value="19">7 PM</option>
+                                <option value="20">8 PM</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Timezone</label>
+                        <select id="timezone">
+                            <option value="America/New_York">Eastern</option>
+                            <option value="America/Chicago">Central</option>
+                            <option value="America/Denver">Mountain</option>
+                            <option value="America/Los_Angeles">Pacific</option>
+                            <option value="Europe/London">London</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()">
+                    Find Available Times
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Pick a time slot -->
+        <div id="step2" class="hidden">
+            <div class="card">
+                <h2>Available Time Slots</h2>
+                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
+                    These are times when all founders are free. Click one to select it.
+                </p>
+                <div id="slotsContainer"></div>
+                <div style="margin-top:16px; display:flex; gap:8px;">
+                    <button class="btn btn-outline" onclick="goToStep(1)">Back</button>
+                    <button class="btn btn-primary" id="selectBtn" onclick="goToStep(3)" disabled style="flex:1;">
+                        Continue with Selected Slot
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Authorize & schedule -->
+        <div id="step3" class="hidden">
+            <div class="card">
+                <h2>Selected Meeting Time</h2>
+                <div id="selectedSlotDisplay" style="padding:12px; background:#f5f5f7; border-radius:8px; margin-bottom:16px;"></div>
+
+                <div class="form-group">
+                    <label>Meeting Title</label>
+                    <input type="text" id="meetingTitle" value="Founders Sync" placeholder="Meeting title">
+                </div>
+                <div class="form-group">
+                    <label>Description (optional)</label>
+                    <input type="text" id="meetingDesc" placeholder="Agenda or notes">
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Google Calendar Authorization</h2>
+                <p style="font-size:13px; color:#86868b; margin-bottom:16px;">
+                    Each founder must authorize the app to add events to their calendar.
+                </p>
+                <div class="auth-grid" id="authGrid"></div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-outline" onclick="goToStep(2)">Back</button>
+                    <button class="btn btn-success" id="scheduleBtn" onclick="scheduleMeeting()" style="flex:1;">
+                        Schedule Meeting on All Calendars
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Result message -->
+        <div id="resultMessage" class="hidden"></div>
+    </div>
+
+    <script>
+        let availableSlots = [];
+        let selectedSlot = null;
+
+        function goToStep(step) {
+            document.getElementById('step1').classList.toggle('hidden', step !== 1);
+            document.getElementById('step2').classList.toggle('hidden', step !== 2);
+            document.getElementById('step3').classList.toggle('hidden', step !== 3);
+
+            for (let i = 1; i <= 3; i++) {
+                const el = document.getElementById(`step${i}-indicator`);
+                el.classList.remove('active', 'done');
+                if (i < step) el.classList.add('done');
+                if (i === step) el.classList.add('active');
+            }
+
+            if (step === 3) {
+                checkAuthStatus();
+                updateSelectedDisplay();
+            }
+        }
+
+        async function findAvailability() {
+            const urls = [
+                document.getElementById('ical1').value.trim(),
+                document.getElementById('ical2').value.trim(),
+                document.getElementById('ical3').value.trim(),
+            ].filter(u => u);
+
+            if (urls.length < 2) {
+                showMessage('Please enter at least 2 iCal URLs.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('findBtn');
+            btn.disabled = true;
+            btn.textContent = 'Searching...';
+
+            try {
+                const resp = await fetch('/api/find-availability', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ical_urls: urls,
+                        duration_minutes: parseInt(document.getElementById('duration').value),
+                        days_ahead: parseInt(document.getElementById('days_ahead').value),
+                        work_hours_start: parseInt(document.getElementById('work_start').value),
+                        work_hours_end: parseInt(document.getElementById('work_end').value),
+                        timezone: document.getElementById('timezone').value,
+                    }),
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to find availability', 'error');
+                    return;
+                }
+
+                availableSlots = data.slots;
+                renderSlots(data.slots, data.timezone);
+                goToStep(2);
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Find Available Times';
+            }
+        }
+
+        function renderSlots(slots, timezone) {
+            const container = document.getElementById('slotsContainer');
+
+            if (slots.length === 0) {
+                container.innerHTML = '<div class="loading">No available slots found. Try expanding the search window or adjusting work hours.</div>';
+                return;
+            }
+
+            const durationMin = parseInt(document.getElementById('duration').value);
+
+            let html = '<ul class="slots-list">';
+            slots.forEach((slot, i) => {
+                const start = new Date(slot.start);
+                const end = new Date(slot.end);
+
+                // Calculate how many meeting-sized blocks fit
+                const totalMinutes = (end - start) / 60000;
+                const blockCount = Math.floor(totalMinutes / durationMin);
+
+                // Generate individual meeting-slot options
+                for (let b = 0; b < blockCount; b++) {
+                    const blockStart = new Date(start.getTime() + b * durationMin * 60000);
+                    const blockEnd = new Date(blockStart.getTime() + durationMin * 60000);
+
+                    const dateStr = blockStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const startStr = blockStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    const endStr = blockEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+                    html += `<li class="slot-item" data-start="${blockStart.toISOString()}" data-end="${blockEnd.toISOString()}" onclick="selectSlot(this, ${i}, ${b})">
+                        <div>
+                            <div class="slot-date">${dateStr}</div>
+                            <div class="slot-time">${startStr} - ${endStr}</div>
+                        </div>
+                        <div class="slot-duration">${durationMin} min</div>
+                    </li>`;
+                }
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function selectSlot(el, slotIdx, blockIdx) {
+            document.querySelectorAll('.slot-item').forEach(s => s.classList.remove('selected'));
+            el.classList.add('selected');
+
+            selectedSlot = {
+                start: el.dataset.start,
+                end: el.dataset.end,
+            };
+
+            document.getElementById('selectBtn').disabled = false;
+        }
+
+        function updateSelectedDisplay() {
+            if (!selectedSlot) return;
+            const start = new Date(selectedSlot.start);
+            const end = new Date(selectedSlot.end);
+            const dateStr = start.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            const startStr = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const endStr = end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+            document.getElementById('selectedSlotDisplay').innerHTML = `
+                <strong>${dateStr}</strong><br>
+                ${startStr} - ${endStr}
+            `;
+        }
+
+        async function checkAuthStatus() {
+            try {
+                const resp = await fetch('/api/auth/status');
+                const statuses = await resp.json();
+                const grid = document.getElementById('authGrid');
+
+                const names = ['Founder 1', 'Founder 2', 'Founder 3'];
+                const ids = ['founder1', 'founder2', 'founder3'];
+
+                grid.innerHTML = ids.map((id, i) => `
+                    <div class="auth-card">
+                        <div class="name">${names[i]}</div>
+                        <div class="auth-status ${statuses[id] ? 'connected' : 'pending'}">
+                            ${statuses[id] ? 'Connected' : 'Not connected'}
+                        </div>
+                        ${statuses[id] ? '' : `<br><a href="/api/auth/start/${id}" class="btn btn-sm btn-outline">Authorize</a>`}
+                    </div>
+                `).join('');
+
+                const allAuthorized = ids.every(id => statuses[id]);
+                document.getElementById('scheduleBtn').disabled = !allAuthorized;
+            } catch (err) {
+                console.error('Failed to check auth status:', err);
+            }
+        }
+
+        async function scheduleMeeting() {
+            if (!selectedSlot) {
+                showMessage('No time slot selected', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('scheduleBtn');
+            btn.disabled = true;
+            btn.textContent = 'Scheduling...';
+
+            try {
+                const resp = await fetch('/api/schedule-meeting', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        summary: document.getElementById('meetingTitle').value || 'Founders Meeting',
+                        start: selectedSlot.start,
+                        end: selectedSlot.end,
+                        description: document.getElementById('meetingDesc').value || '',
+                    }),
+                });
+
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to schedule meeting', 'error');
+                    if (data.unauthorized) {
+                        checkAuthStatus();
+                    }
+                    return;
+                }
+
+                showMessage('Meeting scheduled on all founders\' calendars!', 'success');
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Schedule Meeting on All Calendars';
+            }
+        }
+
+        function showMessage(text, type) {
+            const el = document.getElementById('resultMessage');
+            el.className = `message message-${type}`;
+            el.textContent = text;
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 6000);
+        }
+
+        // Check if returning from OAuth
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('auth_success')) {
+            showMessage(`${params.get('auth_success')} authorized successfully!`, 'success');
+            window.history.replaceState({}, '', '/');
+        }
+    </script>
+</body>
+</html>
