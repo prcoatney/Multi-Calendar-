@@ -11,6 +11,13 @@ def fetch_ical(url: str) -> Calendar:
     """Fetch and parse an iCal feed from a secret Google Calendar URL."""
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
+    content_type = resp.headers.get("Content-Type", "")
+    if "text/html" in content_type or resp.content.strip().startswith(b"<!"):
+        raise ValueError(
+            "One of the calendar URLs returned an HTML page instead of iCal data. "
+            "Make sure you're using the 'Secret address in iCal format' from Google Calendar Settings — "
+            "not a regular calendar page link."
+        )
     return Calendar.from_ical(resp.content)
 
 

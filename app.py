@@ -87,6 +87,8 @@ def api_add_calendar():
         return jsonify({"error": "Invalid founder ID"}), 400
     if not ical_url or not ical_url.startswith("https://"):
         return jsonify({"error": "Valid HTTPS URL required"}), 400
+    if "calendar.google.com" in ical_url and "/ical/" not in ical_url:
+        return jsonify({"error": "That looks like a regular Google Calendar link. You need the 'Secret address in iCal format' — go to Google Calendar Settings, click your calendar, and scroll down to find it."}), 400
 
     add_calendar(fid, label, ical_url)
     return jsonify({"success": True})
