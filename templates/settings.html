@@ -48,8 +48,17 @@
             </div>
             {% endfor %}
 
-            <!-- Add new calendar form -->
-            <div class="add-cal-form" id="form-{{ f.id }}" style="{% if f.calendars | length > 0 %}margin-top:12px;{% endif %}">
+            <!-- Add new calendar -->
+            {% if f.calendars | length > 0 %}
+            <button class="btn btn-outline btn-sm" id="toggle-{{ f.id }}" onclick="toggleAddForm('{{ f.id }}')" style="margin-top:12px;">
+                + Add Another Calendar
+            </button>
+            {% endif %}
+
+            <div class="add-cal-form" id="form-{{ f.id }}" style="{% if f.calendars | length > 0 %}display:none; margin-top:12px;{% endif %}">
+                <p style="font-size:13px; color:#6b7280; margin-bottom:10px;">
+                    Got a work calendar AND a personal one? Add them both — the app checks all of them for conflicts.
+                </p>
                 <div class="form-row" style="margin-bottom:8px;">
                     <div class="form-group" style="margin-bottom:0; flex:1;">
                         <label>Label</label>
@@ -72,6 +81,18 @@
     </div>
 
     <script>
+        function toggleAddForm(founderId) {
+            const form = document.getElementById(`form-${founderId}`);
+            const btn = document.getElementById(`toggle-${founderId}`);
+            if (form.style.display === 'none') {
+                form.style.display = 'block';
+                btn.style.display = 'none';
+            } else {
+                form.style.display = 'none';
+                btn.style.display = '';
+            }
+        }
+
         async function addCal(founderId) {
             const urlInput = document.getElementById(`url-${founderId}`);
             const labelInput = document.getElementById(`label-${founderId}`);
