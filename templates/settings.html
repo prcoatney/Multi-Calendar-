@@ -3,19 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dominion — Settings</title>
+    <title>{{ org.name }} — Settings</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="org-{{ org.slug }}">
     <div class="container">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
             <div>
-                <h1>Settings</h1>
-                <p class="subtitle">Each founder adds their calendar URLs and locks them in</p>
+                <h1>{{ org.name }} Settings</h1>
+                <p class="subtitle">Manage team members and their calendar URLs</p>
             </div>
-            <a href="/" class="btn btn-outline btn-sm" style="margin-top:4px;">Back</a>
+            <a href="/{{ org.slug }}/" class="btn btn-outline btn-sm" style="margin-top:4px;">Back</a>
         </div>
 
+        <!-- Add Member -->
+        <div class="card" id="add-member-card">
+            <h2>Team Members</h2>
+            <p style="font-size:13px; color:#6b7280; margin-bottom:16px;">
+                Add everyone who needs to be included in availability checks and scheduling.
+            </p>
+            <div class="form-row" style="margin-bottom:0;">
+                <div class="form-group" style="margin-bottom:0; flex:1;">
+                    <label>New Member Name</label>
+                    <input type="text" id="new-member-name" placeholder="e.g. Sarah, Mike, etc.">
+                </div>
+                <div style="display:flex; align-items:flex-end; padding-bottom:1px;">
+                    <button class="btn btn-primary" onclick="addMember()" id="addMemberBtn" style="width:auto;">
+                        Add Member
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- iCal instructions -->
         <div class="card" style="margin-bottom:12px;">
             <p style="font-size:13px; color:#6b7280; margin-bottom:8px;">
                 <strong style="color:#e5e7eb;">How to get your iCal URL:</strong>
@@ -32,66 +52,81 @@
             </p>
         </div>
 
-        {% for f in founders %}
-        <div class="card" id="card-{{ f.id }}">
+        <!-- Member cards -->
+        <div id="members-container">
+        {% for m in members %}
+        <div class="card" id="card-{{ m.id }}">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                <h2 style="margin-bottom:0;">{{ f.name }}</h2>
-                {% if f.calendars | length > 0 %}
-                <span class="founder-status configured">
-                    {{ f.calendars | length }} calendar{{ 's' if f.calendars | length > 1 else '' }}
-                </span>
-                {% else %}
-                <span class="founder-status missing">No calendars</span>
-                {% endif %}
+                <h2 style="margin-bottom:0;">{{ m.name }}</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    {% if m.calendars | length > 0 %}
+                    <span class="founder-status configured">
+                        {{ m.calendars | length }} calendar{{ 's' if m.calendars | length > 1 else '' }}
+                    </span>
+                    {% else %}
+                    <span class="founder-status missing">No calendars</span>
+                    {% endif %}
+                    <button class="btn btn-outline btn-sm btn-danger" onclick="removeMember({{ m.id }}, '{{ m.name }}')">Remove</button>
+                </div>
             </div>
 
             <!-- Existing calendars (masked) -->
-            {% for cal in f.calendars %}
+            {% for cal in m.calendars %}
             <div class="cal-row" id="cal-{{ cal.id }}">
                 <div class="cal-info">
                     <span class="cal-label">{{ cal.label }}</span>
                     <span class="cal-masked">&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;</span>
                 </div>
-                <button class="btn btn-outline btn-sm btn-danger" onclick="removeCal({{ cal.id }}, '{{ f.id }}')">Remove</button>
+                <button class="btn btn-outline btn-sm btn-danger" onclick="removeCal({{ cal.id }}, {{ m.id }})">Remove</button>
             </div>
             {% endfor %}
 
             <!-- Add new calendar -->
-            {% if f.calendars | length > 0 %}
-            <button class="btn btn-outline btn-sm" id="toggle-{{ f.id }}" onclick="toggleAddForm('{{ f.id }}')" style="margin-top:12px;">
+            {% if m.calendars | length > 0 %}
+            <button class="btn btn-outline btn-sm" id="toggle-{{ m.id }}" onclick="toggleAddForm({{ m.id }})" style="margin-top:12px;">
                 + Add Another Calendar
             </button>
             {% endif %}
 
-            <div class="add-cal-form" id="form-{{ f.id }}" style="{% if f.calendars | length > 0 %}display:none; margin-top:12px;{% endif %}">
+            <div class="add-cal-form" id="form-{{ m.id }}" style="{% if m.calendars | length > 0 %}display:none; margin-top:12px;{% endif %}">
                 <p style="font-size:13px; color:#6b7280; margin-bottom:10px;">
                     Got a work calendar AND a personal one? Add them both — the app checks all of them for conflicts.
                 </p>
                 <div class="form-row" style="margin-bottom:8px;">
                     <div class="form-group" style="margin-bottom:0; flex:1;">
                         <label>Label</label>
-                        <input type="text" id="label-{{ f.id }}" placeholder="Work, Personal, etc." value="{% if f.calendars | length == 0 %}Main{% endif %}">
+                        <input type="text" id="label-{{ m.id }}" placeholder="Work, Personal, etc." value="{% if m.calendars | length == 0 %}Main{% endif %}">
                     </div>
                 </div>
                 <div class="form-group" style="margin-bottom:10px;">
                     <label>iCal URL</label>
-                    <input type="url" id="url-{{ f.id }}" placeholder="https://calendar.google.com/calendar/ical/...">
+                    <input type="url" id="url-{{ m.id }}" placeholder="https://calendar.google.com/calendar/ical/...">
                 </div>
-                <button class="btn btn-primary" onclick="addCal('{{ f.id }}')" id="save-{{ f.id }}">
+                <button class="btn btn-primary" onclick="addCal({{ m.id }})" id="save-{{ m.id }}">
                     Lock It In
                 </button>
             </div>
         </div>
         {% endfor %}
+        </div>
+
+        {% if members | length == 0 %}
+        <div class="card" id="empty-state" style="text-align:center; padding:40px;">
+            <p style="color:#6b7280; font-size:15px;">No members yet. Add your first team member above.</p>
+        </div>
+        {% endif %}
 
         <!-- Result message -->
         <div id="resultMessage" class="hidden"></div>
     </div>
 
     <script>
-        function toggleAddForm(founderId) {
-            const form = document.getElementById(`form-${founderId}`);
-            const btn = document.getElementById(`toggle-${founderId}`);
+        const ORG_SLUG = '{{ org.slug }}';
+        const API_BASE = '/' + ORG_SLUG;
+
+        function toggleAddForm(memberId) {
+            const form = document.getElementById(`form-${memberId}`);
+            const btn = document.getElementById(`toggle-${memberId}`);
             if (form.style.display === 'none') {
                 form.style.display = 'block';
                 btn.style.display = 'none';
@@ -101,9 +136,66 @@
             }
         }
 
-        async function addCal(founderId) {
-            const urlInput = document.getElementById(`url-${founderId}`);
-            const labelInput = document.getElementById(`label-${founderId}`);
+        async function addMember() {
+            const nameInput = document.getElementById('new-member-name');
+            const name = nameInput.value.trim();
+            if (!name) {
+                showMessage('Enter a name for the new member.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('addMemberBtn');
+            btn.disabled = true;
+            btn.textContent = 'Adding...';
+
+            try {
+                const resp = await fetch(API_BASE + '/api/members', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name }),
+                });
+
+                const data = await resp.json();
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to add member', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Add Member';
+                    return;
+                }
+
+                showMessage(`${name} added to the team.`, 'success');
+                setTimeout(() => window.location.reload(), 600);
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Add Member';
+            }
+        }
+
+        async function removeMember(memberId, memberName) {
+            if (!confirm(`Remove ${memberName} and all their calendars?`)) return;
+
+            try {
+                const resp = await fetch(API_BASE + `/api/members/${memberId}`, {
+                    method: 'DELETE',
+                });
+
+                const data = await resp.json();
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to remove member', 'error');
+                    return;
+                }
+
+                showMessage(`${memberName} removed.`, 'success');
+                setTimeout(() => window.location.reload(), 600);
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+            }
+        }
+
+        async function addCal(memberId) {
+            const urlInput = document.getElementById(`url-${memberId}`);
+            const labelInput = document.getElementById(`label-${memberId}`);
             const url = urlInput.value.trim();
             const label = labelInput.value.trim() || 'Main';
 
@@ -116,15 +208,15 @@
                 return;
             }
 
-            const btn = document.getElementById(`save-${founderId}`);
+            const btn = document.getElementById(`save-${memberId}`);
             btn.disabled = true;
             btn.textContent = 'Saving...';
 
             try {
-                const resp = await fetch('/api/calendars', {
+                const resp = await fetch(API_BASE + '/api/calendars', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ founder_id: founderId, label: label, ical_url: url }),
+                    body: JSON.stringify({ member_id: memberId, label: label, ical_url: url }),
                 });
 
                 const data = await resp.json();
@@ -144,14 +236,14 @@
             }
         }
 
-        async function removeCal(calId, founderId) {
+        async function removeCal(calId, memberId) {
             if (!confirm('Remove this calendar?')) return;
 
             try {
-                const resp = await fetch(`/api/calendars/${calId}`, {
+                const resp = await fetch(API_BASE + `/api/calendars/${calId}`, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ founder_id: founderId }),
+                    body: JSON.stringify({ member_id: memberId }),
                 });
 
                 const data = await resp.json();
@@ -175,6 +267,11 @@
             el.classList.remove('hidden');
             setTimeout(() => el.classList.add('hidden'), 6000);
         }
+
+        // Submit on Enter in the new member name field
+        document.getElementById('new-member-name').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); addMember(); }
+        });
     </script>
 </body>
 </html>

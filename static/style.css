@@ -281,7 +281,7 @@ h2 {
 /* ── Auth section ── */
 .auth-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
 }
 
@@ -552,6 +552,426 @@ h2 {
     padding: 8px 4px;
   }
 }
+
+/* ── Org grid (landing page) ── */
+.org-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.org-card {
+  display: block;
+  padding: 24px 20px;
+  background: var(--dom-stone);
+  border: 1px solid var(--dom-stone-border);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  transition: all 200ms ease;
+}
+
+.org-card:hover {
+  border-color: var(--dom-mint-border);
+  box-shadow: var(--shadow-mint);
+  transform: translateY(-2px);
+}
+
+.org-name {
+  font-family: 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--dom-white);
+  margin-bottom: 4px;
+}
+
+.org-slug {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--dom-gray-500);
+}
+
+/* ========================================
+   The Bully Pulpit — Brand Theme
+   Navy / Red / Light Background
+   ======================================== */
+
+body.org-bully-pulpit {
+  --dom-black: #f0f0f0;
+  --dom-white: #1B2A4A;
+  --dom-mint: #C41E3A;
+  --dom-emerald: #1B2A4A;
+  --dom-mint-dim: rgba(196,30,58,0.08);
+  --dom-mint-border: rgba(27,42,74,0.25);
+  --dom-mint-glow: rgba(196,30,58,0.12);
+  --dom-stone: #ffffff;
+  --dom-stone-light: #f7f8fa;
+  --dom-stone-mid: #e8eaed;
+  --dom-stone-border: #d0d5dd;
+  --dom-gray-400: #5a6577;
+  --dom-gray-500: #6b7280;
+  --dom-gray-600: #9ca3af;
+  --shadow-subtle: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.06);
+  --shadow-mint: 0 4px 20px rgba(27,42,74,0.08);
+  --shadow-mint-strong: 0 4px 24px rgba(27,42,74,0.14);
+
+  background: #f0f0f0;
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='52' viewBox='0 0 60 52'%3E%3Cpath d='M30 0 L60 17 L60 35 L30 52 L0 35 L0 17 Z' fill='none' stroke='%231B2A4A' stroke-opacity='0.05' stroke-width='0.5'/%3E%3Cpath d='M30 0 L30 17 L0 17' fill='none' stroke='%231B2A4A' stroke-opacity='0.04' stroke-width='0.5'/%3E%3Cpath d='M30 17 L60 17' fill='none' stroke='%231B2A4A' stroke-opacity='0.04' stroke-width='0.5'/%3E%3Cpath d='M30 17 L30 52' fill='none' stroke='%231B2A4A' stroke-opacity='0.03' stroke-width='0.5'/%3E%3C/svg%3E");
+}
+
+body.org-bully-pulpit h1 {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .subtitle {
+  color: #5a6577;
+}
+
+body.org-bully-pulpit .card h2 {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .btn-primary {
+  background: #1B2A4A;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(27,42,74,0.2);
+}
+
+body.org-bully-pulpit .btn-primary:hover {
+  background: #243660;
+  box-shadow: 0 4px 24px rgba(27,42,74,0.3);
+}
+
+body.org-bully-pulpit .btn-primary:disabled {
+  background: #d0d5dd;
+  color: #9ca3af;
+}
+
+body.org-bully-pulpit .btn-success {
+  background: linear-gradient(135deg, #C41E3A, #1B2A4A);
+  color: #ffffff;
+  box-shadow: 0 4px 24px rgba(196,30,58,0.2);
+}
+
+body.org-bully-pulpit .btn-success:hover {
+  box-shadow: 0 6px 32px rgba(196,30,58,0.3);
+}
+
+body.org-bully-pulpit .btn-outline {
+  border-color: #d0d5dd;
+  color: #5a6577;
+}
+
+body.org-bully-pulpit .btn-outline:hover {
+  border-color: #1B2A4A;
+  color: #1B2A4A;
+  background: rgba(27,42,74,0.06);
+}
+
+body.org-bully-pulpit .form-group label {
+  color: #C41E3A;
+}
+
+body.org-bully-pulpit .form-group input,
+body.org-bully-pulpit .form-group select {
+  color: #1B2A4A;
+  background: #f7f8fa;
+  border-color: #d0d5dd;
+}
+
+body.org-bully-pulpit .form-group input::placeholder {
+  color: #9ca3af;
+}
+
+body.org-bully-pulpit .form-group input:focus,
+body.org-bully-pulpit .form-group select:focus {
+  border-color: #1B2A4A;
+  box-shadow: 0 0 0 3px rgba(27,42,74,0.1);
+}
+
+body.org-bully-pulpit .form-group select option {
+  background: #ffffff;
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .step.active {
+  color: #C41E3A;
+  border-bottom-color: #C41E3A;
+}
+
+body.org-bully-pulpit .step.done {
+  color: #1B2A4A;
+  border-bottom-color: #1B2A4A;
+}
+
+body.org-bully-pulpit .slot-duration {
+  color: #C41E3A;
+  background: rgba(196,30,58,0.08);
+  border-color: rgba(196,30,58,0.2);
+}
+
+body.org-bully-pulpit .slot-time {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .slot-date {
+  color: #5a6577;
+}
+
+body.org-bully-pulpit .founder-name {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .founder-status.configured {
+  background: rgba(27,42,74,0.08);
+  color: #1B2A4A;
+  border-color: rgba(27,42,74,0.2);
+}
+
+body.org-bully-pulpit .auth-status.connected {
+  background: rgba(27,42,74,0.08);
+  color: #1B2A4A;
+  border-color: rgba(27,42,74,0.2);
+}
+
+body.org-bully-pulpit .auth-card .name {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .cal-label {
+  color: #1B2A4A;
+}
+
+body.org-bully-pulpit .message-success {
+  background: rgba(27,42,74,0.08);
+  color: #1B2A4A;
+  border-color: rgba(27,42,74,0.2);
+}
+
+body.org-bully-pulpit :focus-visible {
+  outline-color: #1B2A4A;
+}
+
+
+/* ========================================
+   Cross Formed Kids — Brand Theme
+   Navy / Teal / Coral / White Background
+   ======================================== */
+
+body.org-cross-formed-kids {
+  --dom-black: #f5f5f5;
+  --dom-white: #2B5C8A;
+  --dom-mint: #3B9B8F;
+  --dom-emerald: #2B5C8A;
+  --dom-mint-dim: rgba(59,155,143,0.08);
+  --dom-mint-border: rgba(59,155,143,0.25);
+  --dom-mint-glow: rgba(59,155,143,0.12);
+  --dom-stone: #ffffff;
+  --dom-stone-light: #f7f9fb;
+  --dom-stone-mid: #e6ecf0;
+  --dom-stone-border: #cdd7df;
+  --dom-gray-400: #526980;
+  --dom-gray-500: #6b7280;
+  --dom-gray-600: #9ca3af;
+  --shadow-subtle: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.06);
+  --shadow-mint: 0 4px 20px rgba(59,155,143,0.1);
+  --shadow-mint-strong: 0 4px 24px rgba(59,155,143,0.18);
+
+  background: #f5f5f5;
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids::before {
+  /* Cross / plus pattern for Cross Formed Kids */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Cpath d='M18 0 L22 0 L22 18 L40 18 L40 22 L22 22 L22 40 L18 40 L18 22 L0 22 L0 18 L18 18 Z' fill='%232B5C8A' fill-opacity='0.03'/%3E%3C/svg%3E");
+  background-size: 40px 40px;
+}
+
+body.org-cross-formed-kids h1 {
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .subtitle {
+  color: #526980;
+}
+
+body.org-cross-formed-kids .card h2 {
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .btn-primary {
+  background: #3B9B8F;
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(59,155,143,0.2);
+}
+
+body.org-cross-formed-kids .btn-primary:hover {
+  background: #339385;
+  box-shadow: 0 4px 24px rgba(59,155,143,0.3);
+}
+
+body.org-cross-formed-kids .btn-primary:disabled {
+  background: #cdd7df;
+  color: #9ca3af;
+}
+
+body.org-cross-formed-kids .btn-success {
+  background: linear-gradient(135deg, #3B9B8F, #2B5C8A);
+  color: #ffffff;
+  box-shadow: 0 4px 24px rgba(59,155,143,0.2);
+}
+
+body.org-cross-formed-kids .btn-success:hover {
+  box-shadow: 0 6px 32px rgba(59,155,143,0.3);
+}
+
+body.org-cross-formed-kids .btn-outline {
+  border-color: #cdd7df;
+  color: #526980;
+}
+
+body.org-cross-formed-kids .btn-outline:hover {
+  border-color: #3B9B8F;
+  color: #3B9B8F;
+  background: rgba(59,155,143,0.06);
+}
+
+body.org-cross-formed-kids .form-group label {
+  color: #E8756E;
+}
+
+body.org-cross-formed-kids .form-group input,
+body.org-cross-formed-kids .form-group select {
+  color: #2B5C8A;
+  background: #f7f9fb;
+  border-color: #cdd7df;
+}
+
+body.org-cross-formed-kids .form-group input::placeholder {
+  color: #9ca3af;
+}
+
+body.org-cross-formed-kids .form-group input:focus,
+body.org-cross-formed-kids .form-group select:focus {
+  border-color: #3B9B8F;
+  box-shadow: 0 0 0 3px rgba(59,155,143,0.12);
+}
+
+body.org-cross-formed-kids .form-group select option {
+  background: #ffffff;
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .step.active {
+  color: #3B9B8F;
+  border-bottom-color: #3B9B8F;
+}
+
+body.org-cross-formed-kids .step.done {
+  color: #2B5C8A;
+  border-bottom-color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .slot-duration {
+  color: #E8756E;
+  background: rgba(232,117,110,0.08);
+  border-color: rgba(232,117,110,0.2);
+}
+
+body.org-cross-formed-kids .slot-time {
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .slot-date {
+  color: #526980;
+}
+
+body.org-cross-formed-kids .founder-name {
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .founder-status.configured {
+  background: rgba(59,155,143,0.08);
+  color: #3B9B8F;
+  border-color: rgba(59,155,143,0.2);
+}
+
+body.org-cross-formed-kids .founder-status.missing {
+  background: rgba(232,117,110,0.08);
+  color: #E8756E;
+  border-color: rgba(232,117,110,0.2);
+}
+
+body.org-cross-formed-kids .auth-status.connected {
+  background: rgba(59,155,143,0.08);
+  color: #3B9B8F;
+  border-color: rgba(59,155,143,0.2);
+}
+
+body.org-cross-formed-kids .auth-status.pending {
+  background: rgba(232,117,110,0.08);
+  color: #E8756E;
+  border-color: rgba(232,117,110,0.2);
+}
+
+body.org-cross-formed-kids .auth-card .name {
+  color: #2B5C8A;
+}
+
+body.org-cross-formed-kids .cal-label {
+  color: #3B9B8F;
+}
+
+body.org-cross-formed-kids .message-success {
+  background: rgba(59,155,143,0.08);
+  color: #3B9B8F;
+  border-color: rgba(59,155,143,0.2);
+}
+
+body.org-cross-formed-kids .btn-danger {
+  color: #E8756E;
+  border-color: rgba(232,117,110,0.25);
+}
+
+body.org-cross-formed-kids .btn-danger:hover {
+  background: rgba(232,117,110,0.08);
+  border-color: rgba(232,117,110,0.4);
+  color: #d4605a;
+}
+
+body.org-cross-formed-kids :focus-visible {
+  outline-color: #3B9B8F;
+}
+
+/* Bully Pulpit danger buttons */
+body.org-bully-pulpit .btn-danger {
+  color: #C41E3A;
+  border-color: rgba(196,30,58,0.25);
+}
+
+body.org-bully-pulpit .btn-danger:hover {
+  background: rgba(196,30,58,0.08);
+  border-color: rgba(196,30,58,0.4);
+  color: #a0182f;
+}
+
+body.org-bully-pulpit .founder-status.missing {
+  background: rgba(196,30,58,0.08);
+  color: #C41E3A;
+  border-color: rgba(196,30,58,0.2);
+}
+
+body.org-bully-pulpit .auth-status.pending {
+  background: rgba(196,30,58,0.08);
+  color: #C41E3A;
+  border-color: rgba(196,30,58,0.2);
+}
+
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendar Scheduler</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container" style="display:flex; align-items:center; justify-content:center; min-height:80vh;">
+        <div style="max-width:480px; width:100%; text-align:center;">
+            <h1 style="font-size:28px; margin-bottom:4px;">Calendar Scheduler</h1>
+            <p class="subtitle" style="margin-bottom:36px;">Choose your organization</p>
+
+            <div class="org-grid">
+                {% for org in orgs %}
+                <a href="/{{ org.slug }}/" class="org-card">
+                    <div class="org-name">{{ org.name }}</div>
+                    <div class="org-slug">/{{ org.slug }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
