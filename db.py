@@ -49,47 +49,30 @@ def init_db():
     """)
 
     # -- Migrate from old founders table if it exists --
+    # Step 1: Migrate founder records to members (don't touch calendars yet)
     try:
         old_founders = conn.execute("SELECT id, name FROM founders ORDER BY id").fetchall()
         if old_founders:
-            # Ensure dominion org exists first
             conn.execute(
                 "INSERT OR IGNORE INTO organizations (slug, name, password) VALUES (?, ?, ?)",
                 ("dominion", "Dominion", "domcal"),
             )
             for f in old_founders:
-                # Check if already migrated
                 existing = conn.execute(
                     "SELECT id FROM members WHERE org_slug = 'dominion' AND name = ?",
                     (f["name"],),
                 ).fetchone()
                 if not existing:
-                    cur = conn.execute(
+                    conn.execute(
                         "INSERT INTO members (org_slug, name) VALUES ('dominion', ?)",
                         (f["name"],),
                     )
-                    new_member_id = cur.lastrowid
-                    # Migrate calendars for this founder
-                    old_cals = conn.execute(
-                        "SELECT label, ical_url FROM calendars WHERE founder_id = ?",
-                        (f["id"],),
-                    ).fetchall()
-                    for cal in old_cals:
-                        conn.execute(
-                            "INSERT INTO calendars (member_id, label, ical_url) VALUES (?, ?, ?)",
-                            (new_member_id, cal["label"], cal["ical_url"]),
-                        )
-            # Drop old tables after migration
-            conn.execute("DROP TABLE IF EXISTS calendars_old_backup")
-            # We'll leave old tables for safety, they just won't be used
     except sqlite3.OperationalError:
-        pass  # Old tables don't exist, no migration needed
+        pass  # Old founders table doesn't exist, no migration needed
 
-    # If calendars table still has founder_id column, we need to recreate it
-    # Check if calendars table has the new schema (member_id)
+    # Step 2: If calendars table has old schema (founder_id), rebuild it
     cols = [row[1] for row in conn.execute("PRAGMA table_info(calendars)").fetchall()]
     if "founder_id" in cols and "member_id" not in cols:
-        # Old schema — rebuild
         conn.execute("ALTER TABLE calendars RENAME TO calendars_old")
         conn.execute("""
             CREATE TABLE calendars (
@@ -100,24 +83,26 @@ def init_db():
                 FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
             )
         """)
-        # Migrate calendar data using the member mapping
-        rows = conn.execute("SELECT id, founder_id, label, ical_url FROM calendars_old").fetchall()
-        for row in rows:
-            # Find the member that was migrated from this founder
-            old_founder = conn.execute(
-                "SELECT name FROM founders WHERE id = ?", (row["founder_id"],)
-            ).fetchone()
-            if old_founder:
-                member = conn.execute(
-                    "SELECT id FROM members WHERE org_slug = 'dominion' AND name = ?",
-                    (old_founder["name"],),
+        # Map old founder calendars to new member IDs
+        try:
+            rows = conn.execute("SELECT founder_id, label, ical_url FROM calendars_old").fetchall()
+            for row in rows:
+                old_founder = conn.execute(
+                    "SELECT name FROM founders WHERE id = ?", (row["founder_id"],)
                 ).fetchone()
-                if member:
-                    conn.execute(
-                        "INSERT INTO calendars (member_id, label, ical_url) VALUES (?, ?, ?)",
-                        (member["id"], row["label"], row["ical_url"]),
-                    )
-        conn.execute("DROP TABLE calendars_old")
+                if old_founder:
+                    member = conn.execute(
+                        "SELECT id FROM members WHERE org_slug = 'dominion' AND name = ?",
+                        (old_founder["name"],),
+                    ).fetchone()
+                    if member:
+                        conn.execute(
+                            "INSERT INTO calendars (member_id, label, ical_url) VALUES (?, ?, ?)",
+                            (member["id"], row["label"], row["ical_url"]),
+                        )
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("DROP TABLE IF EXISTS calendars_old")
 
     # -- Seed organizations --
     orgs = [
