@@ -5,13 +5,80 @@ import sqlite3
 
 DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "dominion.db"))
 
+# Log the actual path being used on startup
+print(f"[DB] Using database at: {DB_PATH}")
+print(f"[DB] File exists: {os.path.exists(DB_PATH)}")
+if os.path.exists(DB_PATH):
+    print(f"[DB] File size: {os.path.getsize(DB_PATH)} bytes")
+
 
 def get_db():
     """Get a database connection."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
+
+def _backup_to_json():
+    """Backup all data to a JSON file alongside the db."""
+    import json
+    try:
+        conn = get_db()
+        orgs = conn.execute("SELECT slug, name, password FROM organizations").fetchall()
+        members = conn.execute("SELECT id, org_slug, name FROM members").fetchall()
+        calendars = conn.execute("SELECT id, member_id, label, ical_url FROM calendars").fetchall()
+        conn.close()
+        backup = {
+            "organizations": [dict(o) for o in orgs],
+            "members": [dict(m) for m in members],
+            "calendars": [dict(c) for c in calendars],
+        }
+        backup_path = DB_PATH + ".backup.json"
+        with open(backup_path, "w") as f:
+            json.dump(backup, f, indent=2)
+        print(f"[DB] Backup: {len(orgs)} orgs, {len(members)} members, {len(calendars)} calendars")
+    except Exception as e:
+        print(f"[DB] Backup failed: {e}")
+
+
+def _restore_from_json():
+    """Restore data from JSON backup if db is empty but backup exists."""
+    import json
+    backup_path = DB_PATH + ".backup.json"
+    if not os.path.exists(backup_path):
+        return
+    try:
+        conn = get_db()
+        cal_count = conn.execute("SELECT COUNT(*) FROM calendars").fetchone()[0]
+        if cal_count > 0:
+            conn.close()
+            return  # DB has data, no restore needed
+
+        with open(backup_path) as f:
+            backup = json.load(f)
+
+        for o in backup.get("organizations", []):
+            conn.execute(
+                "INSERT OR IGNORE INTO organizations (slug, name, password) VALUES (?, ?, ?)",
+                (o["slug"], o["name"], o.get("password", "")),
+            )
+        for m in backup.get("members", []):
+            conn.execute(
+                "INSERT OR REPLACE INTO members (id, org_slug, name) VALUES (?, ?, ?)",
+                (m["id"], m["org_slug"], m["name"]),
+            )
+        for c in backup.get("calendars", []):
+            conn.execute(
+                "INSERT INTO calendars (member_id, label, ical_url) VALUES (?, ?, ?)",
+                (c["member_id"], c["label"], c["ical_url"]),
+            )
+        conn.commit()
+        conn.close()
+        print(f"[DB] Restored from backup: {len(backup.get('members', []))} members, {len(backup.get('calendars', []))} calendars")
+    except Exception as e:
+        print(f"[DB] Restore failed: {e}")
 
 
 def init_db():
@@ -130,6 +197,9 @@ def init_db():
     conn.commit()
     conn.close()
 
+    # Restore from backup if db was empty (volume got wiped)
+    _restore_from_json()
+
 
 # ── Organization queries ──
 
@@ -194,13 +264,13 @@ def add_member(org_slug, name):
     member_id = cur.lastrowid
     conn.commit()
     conn.close()
+    _backup_to_json()
     return member_id
 
 
 def remove_member(member_id, org_slug):
     """Remove a member and their calendars from an org."""
     conn = get_db()
-    # Calendars cascade-delete via FK, but just in case:
     conn.execute("DELETE FROM calendars WHERE member_id = ?", (member_id,))
     conn.execute(
         "DELETE FROM members WHERE id = ? AND org_slug = ?",
@@ -208,6 +278,7 @@ def remove_member(member_id, org_slug):
     )
     conn.commit()
     conn.close()
+    _backup_to_json()
 
 
 def save_member_name(member_id, org_slug, name):
@@ -219,6 +290,7 @@ def save_member_name(member_id, org_slug, name):
     )
     conn.commit()
     conn.close()
+    _backup_to_json()
 
 
 def member_belongs_to_org(member_id, org_slug):
@@ -257,6 +329,7 @@ def add_calendar(member_id, label, ical_url):
     )
     conn.commit()
     conn.close()
+    _backup_to_json()
 
 
 def remove_calendar(calendar_id, member_id):
@@ -268,6 +341,7 @@ def remove_calendar(calendar_id, member_id):
     )
     conn.commit()
     conn.close()
+    _backup_to_json()
 
 
 # Initialize on import
