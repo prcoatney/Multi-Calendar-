@@ -126,11 +126,11 @@ def find_available_slots(
     work_hours_start: int = 9,
     work_hours_end: int = 17,
     timezone_str: str = "America/New_York",
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Find time slots where ALL people are available.
 
     Args:
-        ical_urls: List of secret iCal URLs for each founder.
+        ical_urls: List of secret iCal URLs for each person.
         search_start: Start of the search window (timezone-aware).
         search_end: End of the search window (timezone-aware).
         meeting_duration_minutes: Desired meeting length in minutes.
@@ -139,7 +139,8 @@ def find_available_slots(
         timezone_str: Timezone for work hours (e.g. "America/New_York").
 
     Returns:
-        List of dicts with 'start' and 'end' datetime strings.
+        Tuple of (slots, fetch_report). Slots are dicts with 'start' and 'end'.
+        fetch_report entries have 'events', 'ok', and 'error' keys.
     """
     tz = pytz.timezone(timezone_str)
     tz_utc = pytz.UTC
@@ -153,12 +154,17 @@ def find_available_slots(
     search_start_utc = search_start.astimezone(tz_utc)
     search_end_utc = search_end.astimezone(tz_utc)
 
-    # Collect all busy times from all calendars
+    # Collect all busy times — each calendar fetched independently
     all_busy = []
+    fetch_report = []
     for url in ical_urls:
-        cal = fetch_ical(url)
-        busy = get_busy_times(cal, search_start_utc, search_end_utc)
-        all_busy.extend(busy)
+        try:
+            cal = fetch_ical(url)
+            busy = get_busy_times(cal, search_start_utc, search_end_utc)
+            all_busy.extend(busy)
+            fetch_report.append({"events": len(busy), "ok": True, "error": None})
+        except Exception as e:
+            fetch_report.append({"events": 0, "ok": False, "error": str(e)})
 
     # Merge all busy intervals into one unified busy timeline
     merged_busy = merge_intervals(all_busy)
@@ -218,4 +224,4 @@ def find_available_slots(
 
         current_day += timedelta(days=1)
 
-    return available_slots
+    return available_slots, fetch_report

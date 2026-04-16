@@ -20,7 +20,63 @@
                 </a>
                 {% endfor %}
             </div>
+
+            <div style="margin-top:28px;">
+                <button onclick="document.getElementById('create-org').style.display = document.getElementById('create-org').style.display === 'none' ? 'block' : 'none'" class="btn btn-outline btn-sm" style="width:100%;">+ New Organization</button>
+                <div id="create-org" style="display:none; margin-top:12px; text-align:left;">
+                    <div class="card">
+                        <div class="form-group">
+                            <label>Organization Name</label>
+                            <input type="text" id="org-name" placeholder="e.g. My Company">
+                        </div>
+                        <div class="form-group">
+                            <label>Password (optional)</label>
+                            <input type="password" id="org-password" placeholder="Leave blank for no password">
+                        </div>
+                        <button class="btn btn-primary" onclick="createOrg()" id="createOrgBtn">Create</button>
+                        <div id="orgMessage" style="margin-top:12px;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
+    <script>
+    async function createOrg() {
+        const name = document.getElementById('org-name').value.trim();
+        if (!name) {
+            document.getElementById('orgMessage').innerHTML = '<div class="message message-error">Name is required.</div>';
+            return;
+        }
+        const password = document.getElementById('org-password').value.trim();
+        const btn = document.getElementById('createOrgBtn');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+
+        try {
+            const resp = await fetch('/admin/orgs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, password: password }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) {
+                document.getElementById('orgMessage').innerHTML = '<div class="message message-error">' + data.error + '</div>';
+                btn.disabled = false;
+                btn.textContent = 'Create';
+                return;
+            }
+            window.location.href = '/' + data.slug + '/settings';
+        } catch (err) {
+            document.getElementById('orgMessage').innerHTML = '<div class="message message-error">Error: ' + err.message + '</div>';
+            btn.disabled = false;
+            btn.textContent = 'Create';
+        }
+    }
+
+    document.getElementById('org-name').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); createOrg(); }
+    });
+    </script>
 </body>
 </html>

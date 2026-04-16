@@ -83,6 +83,14 @@ def _restore_from_json():
 
 def init_db():
     """Create tables if they don't exist and run migrations."""
+    # Safety: backup existing data before any migration
+    if os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 0:
+        try:
+            _backup_to_json()
+            print("[DB] Pre-migration backup complete")
+        except Exception as e:
+            print(f"[DB] Pre-migration backup skipped: {e}")
+
     conn = get_db()
 
     # -- Organizations table --
@@ -199,6 +207,17 @@ def init_db():
 
     # Restore from backup if db was empty (volume got wiped)
     _restore_from_json()
+
+    # Integrity check — log what's in the DB after init
+    try:
+        conn = get_db()
+        org_count = conn.execute("SELECT COUNT(*) FROM organizations").fetchone()[0]
+        member_count = conn.execute("SELECT COUNT(*) FROM members").fetchone()[0]
+        cal_count = conn.execute("SELECT COUNT(*) FROM calendars").fetchone()[0]
+        conn.close()
+        print(f"[DB] Ready: {org_count} orgs, {member_count} members, {cal_count} calendars")
+    except Exception as e:
+        print(f"[DB] Integrity check failed: {e}")
 
 
 # ── Organization queries ──
@@ -342,6 +361,44 @@ def remove_calendar(calendar_id, member_id):
     conn.commit()
     conn.close()
     _backup_to_json()
+
+
+def create_org(name, slug=None, password=""):
+    """Create a new organization dynamically. Returns the slug."""
+    if not slug:
+        slug = ''.join(c if c.isalnum() else '-' for c in name.lower().strip())
+        while '--' in slug:
+            slug = slug.replace('--', '-')
+        slug = slug.strip('-')
+    if not slug:
+        raise ValueError("Could not generate a valid slug from the name")
+    conn = get_db()
+    existing = conn.execute("SELECT 1 FROM organizations WHERE slug = ?", (slug,)).fetchone()
+    if existing:
+        conn.close()
+        raise ValueError(f"Organization '{slug}' already exists")
+    conn.execute(
+        "INSERT INTO organizations (slug, name, password) VALUES (?, ?, ?)",
+        (slug, name, password),
+    )
+    conn.commit()
+    conn.close()
+    _backup_to_json()
+    return slug
+
+
+def get_member_calendar_map(org_slug):
+    """Return calendars with member association for fetch reporting."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT c.ical_url, m.name as member_name, c.label
+        FROM calendars c
+        JOIN members m ON c.member_id = m.id
+        WHERE m.org_slug = ?
+        ORDER BY m.id, c.id
+    """, (org_slug,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # Initialize on import

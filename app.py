@@ -16,12 +16,14 @@ from db import (
     get_members,
     get_member_ids,
     get_all_ical_urls,
+    get_member_calendar_map,
     add_calendar,
     remove_calendar,
     add_member,
     remove_member,
     save_member_name,
     member_belongs_to_org,
+    create_org,
 )
 from google_calendar import (
     get_auth_url,
@@ -119,7 +121,8 @@ def org_index(org_slug):
     """Render the main scheduler page for an org."""
     org = _get_org_or_404(org_slug)
     members = get_members(org_slug)
-    return render_template("index.html", org=org, members=members)
+    total_cals = sum(len(m["calendars"]) for m in members)
+    return render_template("index.html", org=org, members=members, total_cals=total_cals)
 
 
 # ── Settings page ──
@@ -227,14 +230,11 @@ def find_availability(org_slug):
     _get_org_or_404(org_slug)
     data = request.get_json() or {}
 
-    ical_urls = get_all_ical_urls(org_slug)
+    cal_map = get_member_calendar_map(org_slug)
+    ical_urls = [c["ical_url"] for c in cal_map]
 
-    if len(ical_urls) < 2:
-        return jsonify({"error": "Not enough calendars configured. Go to Settings to add them."}), 400
-
-    for url in ical_urls:
-        if not url.startswith("https://"):
-            return jsonify({"error": f"Invalid URL (must be HTTPS): {url}"}), 400
+    if len(ical_urls) < 1:
+        return jsonify({"error": "No calendars configured. Go to Settings to add them."}), 400
 
     duration = data.get("duration_minutes", 60)
     days_ahead = data.get("days_ahead", 5)
@@ -252,7 +252,7 @@ def find_availability(org_slug):
     search_end = now + timedelta(days=days_ahead)
 
     try:
-        slots = find_available_slots(
+        slots, fetch_report = find_available_slots(
             ical_urls=ical_urls,
             search_start=search_start,
             search_end=search_end,
@@ -262,9 +262,21 @@ def find_availability(org_slug):
             timezone_str=tz_str,
         )
     except Exception as e:
-        return jsonify({"error": f"Failed to fetch calendars: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to process calendars: {str(e)}"}), 500
 
-    return jsonify({"slots": slots, "timezone": tz_str})
+    # Map report to member names (don't expose URLs)
+    member_report = []
+    for i, entry in enumerate(fetch_report):
+        info = cal_map[i]
+        member_report.append({
+            "member": info["member_name"],
+            "label": info["label"],
+            "events": entry["events"],
+            "ok": entry["ok"],
+            "error": entry["error"],
+        })
+
+    return jsonify({"slots": slots, "timezone": tz_str, "report": member_report})
 
 
 # ── OAuth / Auth API ──
@@ -361,6 +373,30 @@ def schedule_meeting(org_slug):
         return jsonify({"error": f"Failed to create events: {str(e)}"}), 500
 
     return jsonify({"success": True, "events": results})
+
+
+# ── Admin API ──
+
+@app.route("/admin/orgs", methods=["POST"])
+def admin_create_org():
+    """Create a new organization."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+
+    password = (data.get("password") or "").strip()
+    slug = (data.get("slug") or "").strip() or None
+
+    try:
+        slug = create_org(name, slug=slug, password=password)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+
+    return jsonify({"success": True, "slug": slug})
 
 
 if __name__ == "__main__":

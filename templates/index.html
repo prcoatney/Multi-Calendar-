@@ -19,19 +19,17 @@
             </div>
         </div>
 
-        {% set members_with_cals = members | selectattr('calendars') | list | length %}
-
-        {% if members | length < 2 %}
+        {% if members | length == 0 %}
         <div class="card" style="border-color: rgba(234,179,8,0.3);">
             <p style="color:#fbbf24; font-size:14px; font-weight:500;">
-                Need at least 2 members to find availability.
-                <a href="/{{ org.slug }}/settings" style="color:#34D399;">Go to Settings</a> to add team members.
+                No team members yet.
+                <a href="/{{ org.slug }}/settings" style="color:#34D399;">Go to Settings</a> to add them.
             </p>
         </div>
-        {% elif members_with_cals < 2 %}
+        {% elif total_cals == 0 %}
         <div class="card" style="border-color: rgba(234,179,8,0.3);">
             <p style="color:#fbbf24; font-size:14px; font-weight:500;">
-                Not enough calendars configured.
+                No calendars configured yet.
                 <a href="/{{ org.slug }}/settings" style="color:#34D399;">Go to Settings</a> to add iCal URLs.
             </p>
         </div>
@@ -116,7 +114,7 @@
                         </select>
                     </div>
                 </div>
-                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()" {% if members | length < 2 or members_with_cals < 2 %}disabled{% endif %}>
+                <button class="btn btn-primary" id="findBtn" onclick="findAvailability()" {% if total_cals == 0 %}disabled{% endif %}>
                     Find Available Times
                 </button>
             </div>
@@ -124,6 +122,7 @@
 
         <!-- Step 2: Pick a time slot -->
         <div id="step2" class="hidden">
+            <div id="fetchReport"></div>
             <div class="card">
                 <h2>Available Time Slots</h2>
                 <p style="font-size:13px; color:#6b7280; margin-bottom:16px;">
@@ -227,6 +226,7 @@
                 }
 
                 availableSlots = data.slots;
+                renderFetchReport(data.report);
                 renderSlots(data.slots, data.timezone);
                 goToStep(2);
             } catch (err) {
@@ -235,6 +235,32 @@
                 btn.disabled = false;
                 btn.textContent = 'Find Available Times';
             }
+        }
+
+        function renderFetchReport(report) {
+            const container = document.getElementById('fetchReport');
+            if (!report || report.length === 0) { container.innerHTML = ''; return; }
+
+            const ok = report.filter(r => r.ok).length;
+            const failed = report.filter(r => !r.ok).length;
+            const totalEvents = report.reduce((sum, r) => sum + r.events, 0);
+
+            let html = '<div class="card fetch-report-card">';
+            html += `<div class="fetch-header">${ok} calendar${ok !== 1 ? 's' : ''} read`;
+            if (failed > 0) html += ` <span class="fetch-warning">(${failed} failed)</span>`;
+            html += ` &mdash; ${totalEvents} event${totalEvents !== 1 ? 's' : ''} found</div>`;
+
+            html += '<div class="fetch-details">';
+            report.forEach(r => {
+                const cls = r.ok ? 'fetch-ok' : 'fetch-fail';
+                const icon = r.ok ? '&#10003;' : '&#10007;';
+                const detail = r.ok ? `${r.events} event${r.events !== 1 ? 's' : ''}` : r.error;
+                html += `<div class="fetch-line ${cls}">
+                    <span>${icon} ${r.member} &mdash; ${r.label}</span>
+                    <span>${detail}</span></div>`;
+            });
+            html += '</div></div>';
+            container.innerHTML = html;
         }
 
         function renderSlots(slots, timezone) {

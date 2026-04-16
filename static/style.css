@@ -973,6 +973,46 @@ body.org-bully-pulpit .auth-status.pending {
 }
 
 
+/* ── Fetch Report ── */
+.fetch-report-card {
+  margin-bottom: 12px;
+}
+
+.fetch-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dom-gray-400);
+  margin-bottom: 10px;
+}
+
+.fetch-warning {
+  color: #fbbf24;
+}
+
+.fetch-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fetch-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.fetch-line.fetch-ok {
+  color: var(--dom-emerald);
+}
+
+.fetch-line.fetch-fail {
+  color: #f87171;
+  background: rgba(248,113,113,0.08);
+}
+
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
