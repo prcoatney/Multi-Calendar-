@@ -9,10 +9,34 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
-TOKEN_DIR = os.path.join(os.path.dirname(__file__), "tokens")
 
-# Ensure token directory exists
+# Store tokens next to the database so they live on the same persistent volume.
+# On Railway the working dir is ephemeral — anything under __file__ gets wiped
+# on redeploy, forcing every member to re-authorize. DATABASE_PATH points at
+# the mounted volume, so tokens kept alongside it survive.
+_DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "dominion.db"))
+TOKEN_DIR = os.path.join(os.path.dirname(_DB_PATH) or ".", "tokens")
 os.makedirs(TOKEN_DIR, exist_ok=True)
+
+# One-time migration: copy tokens from the old in-repo location onto the volume
+# if the volume has none yet. Safe to run every boot — it only copies missing files.
+_LEGACY_TOKEN_DIR = os.path.join(os.path.dirname(__file__), "tokens")
+if _LEGACY_TOKEN_DIR != TOKEN_DIR and os.path.isdir(_LEGACY_TOKEN_DIR):
+    for _fname in os.listdir(_LEGACY_TOKEN_DIR):
+        if not _fname.startswith("token_") or not _fname.endswith(".json"):
+            continue
+        _src = os.path.join(_LEGACY_TOKEN_DIR, _fname)
+        _dst = os.path.join(TOKEN_DIR, _fname)
+        if os.path.exists(_dst):
+            continue
+        try:
+            with open(_src, "r") as _f:
+                _data = _f.read()
+            with open(_dst, "w") as _f:
+                _f.write(_data)
+            print(f"[tokens] Migrated {_fname} from legacy dir to volume")
+        except Exception as _e:
+            print(f"[tokens] Migration failed for {_fname}: {_e}")
 
 
 def _get_credentials_path() -> str:
