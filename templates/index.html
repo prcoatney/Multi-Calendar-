@@ -152,6 +152,14 @@
                     <label>Description (optional)</label>
                     <input type="text" id="meetingDesc" placeholder="Agenda or notes">
                 </div>
+                {% if org.slug == 'cross-formed-kids' %}
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                        <input type="checkbox" id="addMeetLink" style="width:auto; margin:0;">
+                        <span>Add Google Meet link</span>
+                    </label>
+                </div>
+                {% endif %}
             </div>
 
             <div class="card">
@@ -351,6 +359,7 @@
             btn.textContent = 'Scheduling...';
 
             try {
+                const meetEl = document.getElementById('addMeetLink');
                 const resp = await fetch(API_BASE + '/api/schedule-meeting', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -359,6 +368,7 @@
                         start: selectedSlot.start,
                         end: selectedSlot.end,
                         description: document.getElementById('meetingDesc').value || '',
+                        add_meet_link: meetEl ? meetEl.checked : false,
                     }),
                 });
 

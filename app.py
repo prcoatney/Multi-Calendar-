@@ -348,6 +348,8 @@ def schedule_meeting(org_slug):
     start_time = data.get("start")
     end_time = data.get("end")
     description = data.get("description", "")
+    # Google Meet link generation is gated to the CFK org for now.
+    add_meet_link = bool(data.get("add_meet_link")) and org_slug == "cross-formed-kids"
 
     if not start_time or not end_time:
         return jsonify({"error": "start and end times are required"}), 400
@@ -368,6 +370,7 @@ def schedule_meeting(org_slug):
             start_time=start_time,
             end_time=end_time,
             description=description,
+            add_meet_link=add_meet_link,
         )
     except Exception as e:
         return jsonify({"error": f"Failed to create events: {str(e)}"}), 500

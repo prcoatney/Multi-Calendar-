@@ -121,6 +121,8 @@ def create_event(
     end_time: str,
     description: str = "",
     attendee_emails: list[str] | None = None,
+    add_meet_link: bool = False,
+    conference_request_id: str | None = None,
 ) -> dict:
     """Create a calendar event for a single member."""
     creds = get_credentials(org_slug, member_id)
@@ -139,7 +141,20 @@ def create_event(
     if attendee_emails:
         event_body["attendees"] = [{"email": e} for e in attendee_emails]
 
-    event = service.events().insert(calendarId="primary", body=event_body).execute()
+    insert_kwargs = {"calendarId": "primary", "body": event_body}
+
+    if add_meet_link:
+        # Reuse the same requestId across members so they all land on one Meet room.
+        req_id = conference_request_id or f"meet-{org_slug}-{int(datetime.utcnow().timestamp())}"
+        event_body["conferenceData"] = {
+            "createRequest": {
+                "requestId": req_id,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        }
+        insert_kwargs["conferenceDataVersion"] = 1
+
+    event = service.events().insert(**insert_kwargs).execute()
     return event
 
 
@@ -150,10 +165,22 @@ def create_event_all_members(
     start_time: str,
     end_time: str,
     description: str = "",
+    add_meet_link: bool = False,
 ) -> list[dict]:
     """Create the same event on all members' calendars."""
     results = []
+    # Shared request ID so every member's event resolves to the same Meet room.
+    shared_req_id = f"meet-{org_slug}-{int(datetime.utcnow().timestamp())}" if add_meet_link else None
     for mid in member_ids:
-        result = create_event(org_slug, mid, summary, start_time, end_time, description)
+        result = create_event(
+            org_slug,
+            mid,
+            summary,
+            start_time,
+            end_time,
+            description,
+            add_meet_link=add_meet_link,
+            conference_request_id=shared_req_id,
+        )
         results.append({"member_id": mid, "event": result})
     return results
