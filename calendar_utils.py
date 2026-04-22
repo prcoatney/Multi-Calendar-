@@ -118,14 +118,25 @@ def merge_intervals(intervals: list[tuple[datetime, datetime]]) -> list[tuple[da
     return merged
 
 
+def _to_time(hour_value):
+    """Convert an hour expressed as int or float (e.g. 8.5 → 08:30) to a time()."""
+    h = int(hour_value)
+    m = int(round((float(hour_value) - h) * 60))
+    if m == 60:
+        h += 1
+        m = 0
+    return time(max(0, min(23, h)), max(0, min(59, m)))
+
+
 def find_available_slots(
     ical_urls: list[str],
     search_start: datetime,
     search_end: datetime,
     meeting_duration_minutes: int = 60,
-    work_hours_start: int = 9,
-    work_hours_end: int = 17,
+    work_hours_start: float = 9,
+    work_hours_end: float = 17,
     timezone_str: str = "America/New_York",
+    allowed_weekdays: set[int] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Find time slots where ALL people are available.
 
@@ -134,14 +145,20 @@ def find_available_slots(
         search_start: Start of the search window (timezone-aware).
         search_end: End of the search window (timezone-aware).
         meeting_duration_minutes: Desired meeting length in minutes.
-        work_hours_start: Start of work hours (hour, 0-23).
-        work_hours_end: End of work hours (hour, 0-23).
+        work_hours_start: Start of work hours (hour, may be fractional — 8.5 = 8:30).
+        work_hours_end: End of work hours (hour, may be fractional).
         timezone_str: Timezone for work hours (e.g. "America/New_York").
+        allowed_weekdays: Iterable of weekday ints (Mon=0 … Sun=6) that are
+            bookable. Default: Mon-Fri ({0,1,2,3,4}).
 
     Returns:
         Tuple of (slots, fetch_report). Slots are dicts with 'start' and 'end'.
         fetch_report entries have 'events', 'ok', and 'error' keys.
     """
+    if allowed_weekdays is None:
+        allowed_weekdays = {0, 1, 2, 3, 4}
+    else:
+        allowed_weekdays = set(allowed_weekdays)
     tz = pytz.timezone(timezone_str)
     tz_utc = pytz.UTC
 
@@ -177,14 +194,17 @@ def find_available_slots(
     current_day = search_start.astimezone(tz).date()
     end_day = search_end.astimezone(tz).date()
 
+    start_t = _to_time(work_hours_start)
+    end_t = _to_time(work_hours_end)
+
     while current_day <= end_day:
-        # Skip weekends
-        if current_day.weekday() >= 5:
+        # Skip days the host doesn't offer
+        if current_day.weekday() not in allowed_weekdays:
             current_day += timedelta(days=1)
             continue
 
-        day_start = tz.localize(datetime.combine(current_day, time(work_hours_start, 0)))
-        day_end = tz.localize(datetime.combine(current_day, time(work_hours_end, 0)))
+        day_start = tz.localize(datetime.combine(current_day, start_t))
+        day_end = tz.localize(datetime.combine(current_day, end_t))
 
         # Clamp to search window
         day_start = max(day_start, search_start.astimezone(tz))

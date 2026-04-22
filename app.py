@@ -466,9 +466,13 @@ def public_booking_availability(org_slug, booking_slug):
     data = request.get_json() or {}
     duration = int(data.get("duration_minutes", 30))
     days_ahead = int(data.get("days_ahead", 14))
-    work_start = int(data.get("work_hours_start", 9))
-    work_end = int(data.get("work_hours_end", 17))
     tz_str = data.get("timezone", "America/New_York")
+
+    # Public booking for Coat runs on a tighter window than the internal
+    # scheduler: Mon-Thu only, 8:30 AM to 3:00 PM. Host window is fixed.
+    BOOKING_WEEKDAYS = {0, 1, 2, 3}  # Mon, Tue, Wed, Thu
+    BOOKING_START_HOUR = 8.5          # 8:30 AM
+    BOOKING_END_HOUR = 15.0           # 3:00 PM
 
     # Fetch only this member's calendars.
     cal_map = [c for c in get_member_calendar_map(org_slug) if c["member_name"] == member["name"]]
@@ -492,9 +496,10 @@ def public_booking_availability(org_slug, booking_slug):
             search_start=search_start,
             search_end=search_end,
             meeting_duration_minutes=duration,
-            work_hours_start=work_start,
-            work_hours_end=work_end,
+            work_hours_start=BOOKING_START_HOUR,
+            work_hours_end=BOOKING_END_HOUR,
             timezone_str=tz_str,
+            allowed_weekdays=BOOKING_WEEKDAYS,
         )
     except Exception as e:
         return jsonify({"error": f"Failed to process calendars: {str(e)}"}), 500
