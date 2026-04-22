@@ -147,8 +147,12 @@ def create_event(
     attendee_emails: list[str] | None = None,
     add_meet_link: bool = False,
     conference_request_id: str | None = None,
+    send_updates: str = "none",
 ) -> dict:
-    """Create a calendar event for a single member."""
+    """Create a calendar event for a single member.
+
+    send_updates: "all" emails attendees the invite, "none" is silent (default).
+    """
     creds = get_credentials(org_slug, member_id)
     if not creds:
         raise ValueError(f"Member {member_id} in '{org_slug}' has not authorized Google Calendar access.")
@@ -165,7 +169,7 @@ def create_event(
     if attendee_emails:
         event_body["attendees"] = [{"email": e} for e in attendee_emails]
 
-    insert_kwargs = {"calendarId": "primary", "body": event_body}
+    insert_kwargs = {"calendarId": "primary", "body": event_body, "sendUpdates": send_updates}
 
     if add_meet_link:
         # Reuse the same requestId across members so they all land on one Meet room.

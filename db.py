@@ -21,13 +21,19 @@ def get_db():
     return conn
 
 
-def _backup_to_json():
-    """Backup all data to a JSON file alongside the db."""
+def _backup_to_json(snapshot_tag: str | None = None):
+    """Backup all data to a JSON file alongside the db.
+
+    If snapshot_tag is provided, also writes an additional timestamped snapshot
+    (e.g. dominion.db.snapshot.20260421T120000.pre-delete.json) that is never
+    overwritten — a safety net for destructive ops.
+    """
     import json
+    from datetime import datetime as _dt
     try:
         conn = get_db()
         orgs = conn.execute("SELECT slug, name, password FROM organizations").fetchall()
-        members = conn.execute("SELECT id, org_slug, name FROM members").fetchall()
+        members = conn.execute("SELECT id, org_slug, name, booking_slug, booking_enabled FROM members").fetchall()
         calendars = conn.execute("SELECT id, member_id, label, ical_url FROM calendars").fetchall()
         conn.close()
         backup = {
@@ -39,6 +45,15 @@ def _backup_to_json():
         with open(backup_path, "w") as f:
             json.dump(backup, f, indent=2)
         print(f"[DB] Backup: {len(orgs)} orgs, {len(members)} members, {len(calendars)} calendars")
+
+        if snapshot_tag:
+            stamp = _dt.utcnow().strftime("%Y%m%dT%H%M%S")
+            # Sanitize the tag — only letters, digits, and dashes.
+            safe_tag = ''.join(c if c.isalnum() or c == '-' else '-' for c in snapshot_tag)
+            snap_path = f"{DB_PATH}.snapshot.{stamp}.{safe_tag}.json"
+            with open(snap_path, "w") as f:
+                json.dump(backup, f, indent=2)
+            print(f"[DB] Snapshot written: {snap_path}")
     except Exception as e:
         print(f"[DB] Backup failed: {e}")
 
@@ -66,8 +81,14 @@ def _restore_from_json():
             )
         for m in backup.get("members", []):
             conn.execute(
-                "INSERT OR REPLACE INTO members (id, org_slug, name) VALUES (?, ?, ?)",
-                (m["id"], m["org_slug"], m["name"]),
+                "INSERT OR REPLACE INTO members (id, org_slug, name, booking_slug, booking_enabled) VALUES (?, ?, ?, ?, ?)",
+                (
+                    m["id"],
+                    m["org_slug"],
+                    m["name"],
+                    m.get("booking_slug"),
+                    m.get("booking_enabled", 0) or 0,
+                ),
             )
         for c in backup.get("calendars", []):
             conn.execute(
@@ -108,9 +129,18 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             org_slug TEXT NOT NULL,
             name TEXT NOT NULL,
+            booking_slug TEXT,
+            booking_enabled INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (org_slug) REFERENCES organizations(slug)
         )
     """)
+
+    # Migration: add booking_slug + booking_enabled if table pre-dated them.
+    member_cols = [row[1] for row in conn.execute("PRAGMA table_info(members)").fetchall()]
+    if "booking_slug" not in member_cols:
+        conn.execute("ALTER TABLE members ADD COLUMN booking_slug TEXT")
+    if "booking_enabled" not in member_cols:
+        conn.execute("ALTER TABLE members ADD COLUMN booking_enabled INTEGER NOT NULL DEFAULT 0")
 
     # -- Calendars table --
     conn.execute("""
@@ -202,6 +232,16 @@ def init_db():
                 (name,),
             )
 
+    # Seed a bookable "Coat" member in CFK if the CFK org has nobody yet.
+    cfk_count = conn.execute(
+        "SELECT COUNT(*) as cnt FROM members WHERE org_slug = 'cross-formed-kids'"
+    ).fetchone()
+    if cfk_count["cnt"] == 0:
+        conn.execute(
+            "INSERT INTO members (org_slug, name, booking_slug, booking_enabled) VALUES (?, ?, ?, 1)",
+            ("cross-formed-kids", "Coat", "coat"),
+        )
+
     conn.commit()
     conn.close()
 
@@ -244,7 +284,7 @@ def get_members(org_slug):
     """Return all members for an org with their calendars."""
     conn = get_db()
     members = conn.execute(
-        "SELECT id, name FROM members WHERE org_slug = ? ORDER BY id",
+        "SELECT id, name, booking_slug, booking_enabled FROM members WHERE org_slug = ? ORDER BY id",
         (org_slug,),
     ).fetchall()
     result = []
@@ -256,10 +296,79 @@ def get_members(org_slug):
         result.append({
             "id": m["id"],
             "name": m["name"],
+            "booking_slug": m["booking_slug"],
+            "booking_enabled": bool(m["booking_enabled"]),
             "calendars": [dict(c) for c in cals],
         })
     conn.close()
     return result
+
+
+def get_member(member_id, org_slug):
+    """Return one member (by id+org), or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, name, booking_slug, booking_enabled FROM members WHERE id = ? AND org_slug = ?",
+        (member_id, org_slug),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "booking_slug": row["booking_slug"],
+        "booking_enabled": bool(row["booking_enabled"]),
+    }
+
+
+def get_bookable_member(org_slug, booking_slug):
+    """Return the member whose booking_slug matches and who is booking_enabled. None otherwise."""
+    conn = get_db()
+    row = conn.execute(
+        """SELECT id, name, booking_slug, booking_enabled FROM members
+           WHERE org_slug = ? AND booking_slug = ? AND booking_enabled = 1""",
+        (org_slug, booking_slug),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "booking_slug": row["booking_slug"],
+        "booking_enabled": bool(row["booking_enabled"]),
+    }
+
+
+def set_booking_config(member_id, org_slug, booking_slug, booking_enabled):
+    """Update a member's booking configuration. booking_slug may be None to clear."""
+    slug = (booking_slug or "").strip().lower() or None
+    if slug:
+        # Normalize to a URL-safe slug.
+        slug = ''.join(c if c.isalnum() else '-' for c in slug)
+        while '--' in slug:
+            slug = slug.replace('--', '-')
+        slug = slug.strip('-') or None
+    conn = get_db()
+    # Ensure the new slug is unique within the org (excluding self).
+    if slug:
+        conflict = conn.execute(
+            """SELECT id FROM members
+               WHERE org_slug = ? AND booking_slug = ? AND id != ?""",
+            (org_slug, slug, member_id),
+        ).fetchone()
+        if conflict:
+            conn.close()
+            raise ValueError(f"Another member in this org already uses booking slug '{slug}'.")
+    conn.execute(
+        "UPDATE members SET booking_slug = ?, booking_enabled = ? WHERE id = ? AND org_slug = ?",
+        (slug, 1 if booking_enabled else 0, member_id, org_slug),
+    )
+    conn.commit()
+    conn.close()
+    _backup_to_json()
+    return slug
 
 
 def get_member_ids(org_slug):
@@ -287,8 +396,28 @@ def add_member(org_slug, name):
     return member_id
 
 
-def remove_member(member_id, org_slug):
-    """Remove a member and their calendars from an org."""
+def remove_member(member_id, org_slug, confirm_name):
+    """Remove a member and their calendars from an org.
+
+    Safety: confirm_name must match the member's current name exactly.
+    Returns True on success, False if the confirmation didn't match.
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT name FROM members WHERE id = ? AND org_slug = ?",
+        (member_id, org_slug),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False
+    if (confirm_name or "").strip() != row["name"]:
+        conn.close()
+        return False
+    # Safety: write a timestamped snapshot *before* the destructive delete.
+    # That snapshot is never overwritten, so even if someone mistypes later,
+    # the pre-delete state survives on disk alongside the db.
+    conn.close()
+    _backup_to_json(snapshot_tag=f"pre-remove-member-{member_id}")
     conn = get_db()
     conn.execute("DELETE FROM calendars WHERE member_id = ?", (member_id,))
     conn.execute(
@@ -298,6 +427,7 @@ def remove_member(member_id, org_slug):
     conn.commit()
     conn.close()
     _backup_to_json()
+    return True
 
 
 def save_member_name(member_id, org_slug, name):
@@ -351,8 +481,25 @@ def add_calendar(member_id, label, ical_url):
     _backup_to_json()
 
 
-def remove_calendar(calendar_id, member_id):
-    """Remove a calendar by ID (scoped to member for safety)."""
+def remove_calendar(calendar_id, member_id, confirm_label):
+    """Remove a calendar by ID (scoped to member for safety).
+
+    Safety: confirm_label must match the calendar's current label exactly.
+    Returns True on success, False if the confirmation didn't match.
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT label FROM calendars WHERE id = ? AND member_id = ?",
+        (calendar_id, member_id),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False
+    if (confirm_label or "").strip() != row["label"]:
+        conn.close()
+        return False
+    conn.close()
+    _backup_to_json(snapshot_tag=f"pre-remove-cal-{calendar_id}")
     conn = get_db()
     conn.execute(
         "DELETE FROM calendars WHERE id = ? AND member_id = ?",
@@ -361,6 +508,7 @@ def remove_calendar(calendar_id, member_id):
     conn.commit()
     conn.close()
     _backup_to_json()
+    return True
 
 
 def create_org(name, slug=None, password=""):

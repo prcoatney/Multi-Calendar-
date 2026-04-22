@@ -44,11 +44,22 @@
         <!-- Step 1: Search params only (URLs come from DB) -->
         <div id="step1">
             <div class="card">
-                <h2>Team Calendars</h2>
+                <h2>Include in Search</h2>
+                <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
+                    Pick which members this meeting is for. Only their calendars are checked — and only their calendars get the event.
+                </p>
                 <div class="founder-list">
                     {% for m in members %}
-                    <div class="founder-row">
-                        <span class="founder-name">{{ m.name }}</span>
+                    <label class="founder-row" style="cursor:pointer;">
+                        <span style="display:flex; align-items:center; gap:10px;">
+                            <input type="checkbox"
+                                   class="member-include"
+                                   value="{{ m.name }}"
+                                   data-member-id="{{ m.id }}"
+                                   {% if m.calendars | length > 0 %}checked{% endif %}
+                                   style="width:auto; margin:0;">
+                            <span class="founder-name">{{ m.name }}</span>
+                        </span>
                         {% if m.calendars | length > 0 %}
                         <span class="founder-status configured">
                             {{ m.calendars | length }} calendar{{ 's' if m.calendars | length > 1 else '' }}
@@ -56,8 +67,12 @@
                         {% else %}
                         <span class="founder-status missing">No calendars</span>
                         {% endif %}
-                    </div>
+                    </label>
                     {% endfor %}
+                </div>
+                <div style="display:flex; gap:8px; margin-top:10px;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="toggleAllMembers(true)">Select all</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="toggleAllMembers(false)">Clear</button>
                 </div>
             </div>
 
@@ -77,9 +92,12 @@
                         <label>Search Window</label>
                         <select id="days_ahead">
                             <option value="3">Next 3 days</option>
-                            <option value="5" selected>Next 5 days</option>
+                            <option value="5">Next 5 days</option>
                             <option value="7">Next 7 days</option>
                             <option value="14">Next 14 days</option>
+                            <option value="30">Next 30 days</option>
+                            <option value="60">Next 60 days</option>
+                            <option value="90" selected>Next 90 days</option>
                         </select>
                     </div>
                 </div>
@@ -208,8 +226,21 @@
             }
         }
 
+        function getSelectedMemberNames() {
+            return Array.from(document.querySelectorAll('.member-include:checked')).map(cb => cb.value);
+        }
+
+        function toggleAllMembers(on) {
+            document.querySelectorAll('.member-include').forEach(cb => { cb.checked = on; });
+        }
+
         async function findAvailability() {
             const btn = document.getElementById('findBtn');
+            const selected = getSelectedMemberNames();
+            if (selected.length === 0) {
+                showMessage('Pick at least one member to include.', 'error');
+                return;
+            }
             btn.disabled = true;
             btn.textContent = 'Searching...';
 
@@ -223,6 +254,7 @@
                         work_hours_start: parseInt(document.getElementById('work_start').value),
                         work_hours_end: parseInt(document.getElementById('work_end').value),
                         timezone: document.getElementById('timezone').value,
+                        member_names: selected,
                     }),
                 });
 
@@ -281,32 +313,45 @@
 
             const durationMin = parseInt(document.getElementById('duration').value);
 
-            let html = '<ul class="slots-list">';
-            slots.forEach((slot, i) => {
+            // Group blocks by day so long windows stay scannable.
+            const byDay = new Map();
+            slots.forEach((slot) => {
                 const start = new Date(slot.start);
                 const end = new Date(slot.end);
-
                 const totalMinutes = (end - start) / 60000;
                 const blockCount = Math.floor(totalMinutes / durationMin);
-
                 for (let b = 0; b < blockCount; b++) {
                     const blockStart = new Date(start.getTime() + b * durationMin * 60000);
                     const blockEnd = new Date(blockStart.getTime() + durationMin * 60000);
+                    const dayKey = blockStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+                    byDay.get(dayKey).push({ blockStart, blockEnd });
+                }
+            });
 
-                    const dateStr = blockStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                    const startStr = blockStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                    const endStr = blockEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-                    html += `<li class="slot-item" data-start="${blockStart.toISOString()}" data-end="${blockEnd.toISOString()}" onclick="selectSlot(this, ${i}, ${b})">
+            const days = Array.from(byDay.keys());
+            let html = '';
+            days.forEach((day, di) => {
+                const blocks = byDay.get(day);
+                const openAttr = di < 3 ? 'open' : '';
+                html += `<details ${openAttr} class="day-group">
+                    <summary class="day-summary">
+                        <span>${day}</span>
+                        <span class="day-count">${blocks.length} slot${blocks.length !== 1 ? 's' : ''}</span>
+                    </summary>
+                    <ul class="slots-list" style="margin-top:8px;">`;
+                blocks.forEach((blk, bi) => {
+                    const startStr = blk.blockStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    const endStr = blk.blockEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    html += `<li class="slot-item" data-start="${blk.blockStart.toISOString()}" data-end="${blk.blockEnd.toISOString()}" onclick="selectSlot(this, ${di}, ${bi})">
                         <div>
-                            <div class="slot-date">${dateStr}</div>
                             <div class="slot-time">${startStr} - ${endStr}</div>
                         </div>
                         <div class="slot-duration">${durationMin} min</div>
                     </li>`;
-                }
+                });
+                html += '</ul></details>';
             });
-            html += '</ul>';
             container.innerHTML = html;
         }
 
@@ -332,8 +377,14 @@
                 const resp = await fetch(API_BASE + '/api/auth/status');
                 const statuses = await resp.json();
                 const grid = document.getElementById('authGrid');
-                const names = [{% for m in members %}'{{ m.name }}'{% if not loop.last %}, {% endif %}{% endfor %}];
-                const ids = [{% for m in members %}{{ m.id }}{% if not loop.last %}, {% endif %}{% endfor %}];
+                const allNames = [{% for m in members %}'{{ m.name }}'{% if not loop.last %}, {% endif %}{% endfor %}];
+                const allIds = [{% for m in members %}{{ m.id }}{% if not loop.last %}, {% endif %}{% endfor %}];
+
+                // Only require auth for members the user actually selected.
+                const selectedNames = new Set(getSelectedMemberNames());
+                const idx = allIds.map((_, i) => i).filter(i => selectedNames.has(allNames[i]));
+                const names = idx.map(i => allNames[i]);
+                const ids = idx.map(i => allIds[i]);
 
                 grid.innerHTML = ids.map((id, i) => `
                     <div class="auth-card">
@@ -369,6 +420,7 @@
                         end: selectedSlot.end,
                         description: document.getElementById('meetingDesc').value || '',
                         add_meet_link: meetEl ? meetEl.checked : false,
+                        member_names: getSelectedMemberNames(),
                     }),
                 });
 

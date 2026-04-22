@@ -66,7 +66,7 @@
                     {% else %}
                     <span class="founder-status missing">No calendars</span>
                     {% endif %}
-                    <button class="btn btn-outline btn-sm btn-danger" onclick="removeMember({{ m.id }}, '{{ m.name }}')">Remove</button>
+                    <button class="btn btn-outline btn-sm btn-danger" onclick="startRemoveMember({{ m.id }}, '{{ m.name|e }}')">Remove</button>
                 </div>
             </div>
 
@@ -77,9 +77,38 @@
                     <span class="cal-label">{{ cal.label }}</span>
                     <span class="cal-masked">&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;&#9733;</span>
                 </div>
-                <button class="btn btn-outline btn-sm btn-danger" onclick="removeCal({{ cal.id }}, {{ m.id }})">Remove</button>
+                <button class="btn btn-outline btn-sm btn-danger" onclick="startRemoveCal({{ cal.id }}, {{ m.id }}, '{{ cal.label|e }}')">Remove</button>
             </div>
             {% endfor %}
+
+            <!-- Public booking config (CFK only) -->
+            {% if org.slug == 'cross-formed-kids' %}
+            <div class="booking-config" style="margin-top:16px; padding:12px; border:1px dashed #cdd7df; border-radius:8px;">
+                <div style="font-size:12px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:#3B9B8F; margin-bottom:8px;">
+                    Public Booking Link
+                </div>
+                <div class="form-row" style="grid-template-columns: 1fr auto;">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>Slug</label>
+                        <input type="text" id="booking-slug-{{ m.id }}" placeholder="e.g. coat" value="{{ m.booking_slug or '' }}">
+                    </div>
+                    <div style="display:flex; align-items:flex-end; padding-bottom:1px;">
+                        <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:1px; cursor:pointer;">
+                            <input type="checkbox" id="booking-enabled-{{ m.id }}" {% if m.booking_enabled %}checked{% endif %} style="width:auto; margin:0;">
+                            <span>Enabled</span>
+                        </label>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+                    <button class="btn btn-outline btn-sm" onclick="saveBooking({{ m.id }})">Save</button>
+                    {% if m.booking_slug and m.booking_enabled %}
+                    <a href="/{{ org.slug }}/book/{{ m.booking_slug }}" target="_blank" style="font-size:12px; color:#3B9B8F;">
+                        Open public link &rarr;
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
 
             <!-- Add new calendar -->
             {% if m.calendars | length > 0 %}
@@ -118,6 +147,23 @@
 
         <!-- Result message -->
         <div id="resultMessage" class="hidden"></div>
+
+        <!-- Type-to-confirm deletion modal -->
+        <div id="confirmBackdrop" class="confirm-backdrop hidden" onclick="if(event.target===this)cancelConfirm()">
+            <div class="confirm-modal">
+                <h2 id="confirmTitle" style="margin-bottom:8px;">Confirm deletion</h2>
+                <p id="confirmMessage" style="font-size:13px; color:#6b7280; margin-bottom:14px;"></p>
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label id="confirmLabel">Type to confirm</label>
+                    <input type="text" id="confirmInput" autocomplete="off">
+                    <p id="confirmHint" style="font-size:12px; color:#9ca3af; margin-top:6px;"></p>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-outline" onclick="cancelConfirm()" style="flex:1;">Cancel</button>
+                    <button class="btn btn-outline btn-danger" id="confirmGoBtn" onclick="runConfirm()" style="flex:1;" disabled>Delete</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -172,22 +218,95 @@
             }
         }
 
-        async function removeMember(memberId, memberName) {
-            if (!confirm(`Remove ${memberName} and all their calendars?`)) return;
+        // ── Type-to-confirm modal ──
+        let _pendingConfirm = null;
 
+        function startRemoveMember(memberId, memberName) {
+            _pendingConfirm = {
+                kind: 'member',
+                expect: memberName,
+                run: async (typed) => {
+                    const resp = await fetch(API_BASE + `/api/members/${memberId}`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ confirm_name: typed }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) {
+                        showMessage(data.error || 'Failed to remove member', 'error');
+                        return;
+                    }
+                    showMessage(`${memberName} removed.`, 'success');
+                    setTimeout(() => window.location.reload(), 600);
+                },
+            };
+            openConfirm({
+                title: 'Remove team member',
+                message: `This deletes ${memberName} and every calendar link saved under their name. This can't be undone from the UI.`,
+                label: `Type the member's name to confirm`,
+                hint: `Must match exactly: ${memberName}`,
+                expect: memberName,
+            });
+        }
+
+        function startRemoveCal(calId, memberId, label) {
+            _pendingConfirm = {
+                kind: 'cal',
+                expect: label,
+                run: async (typed) => {
+                    const resp = await fetch(API_BASE + `/api/calendars/${calId}`, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ member_id: memberId, confirm_label: typed }),
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok) {
+                        showMessage(data.error || 'Failed to remove', 'error');
+                        return;
+                    }
+                    showMessage('Calendar removed.', 'success');
+                    setTimeout(() => window.location.reload(), 600);
+                },
+            };
+            openConfirm({
+                title: 'Remove calendar link',
+                message: `You're about to delete the saved iCal URL labeled "${label}". You'll have to paste it in again to restore it.`,
+                label: `Type the calendar label to confirm`,
+                hint: `Must match exactly: ${label}`,
+                expect: label,
+            });
+        }
+
+        function openConfirm({ title, message, label, hint, expect }) {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('confirmLabel').textContent = label;
+            document.getElementById('confirmHint').textContent = hint;
+            const input = document.getElementById('confirmInput');
+            input.value = '';
+            const btn = document.getElementById('confirmGoBtn');
+            btn.disabled = true;
+            input.oninput = () => {
+                btn.disabled = input.value.trim() !== expect;
+            };
+            document.getElementById('confirmBackdrop').classList.remove('hidden');
+            setTimeout(() => input.focus(), 20);
+        }
+
+        function cancelConfirm() {
+            document.getElementById('confirmBackdrop').classList.add('hidden');
+            _pendingConfirm = null;
+        }
+
+        async function runConfirm() {
+            if (!_pendingConfirm) return;
+            const typed = document.getElementById('confirmInput').value.trim();
+            if (typed !== _pendingConfirm.expect) return;
+            const action = _pendingConfirm;
+            _pendingConfirm = null;
+            document.getElementById('confirmBackdrop').classList.add('hidden');
             try {
-                const resp = await fetch(API_BASE + `/api/members/${memberId}`, {
-                    method: 'DELETE',
-                });
-
-                const data = await resp.json();
-                if (!resp.ok) {
-                    showMessage(data.error || 'Failed to remove member', 'error');
-                    return;
-                }
-
-                showMessage(`${memberName} removed.`, 'success');
-                setTimeout(() => window.location.reload(), 600);
+                await action.run(typed);
             } catch (err) {
                 showMessage('Network error: ' + err.message, 'error');
             }
@@ -236,24 +355,29 @@
             }
         }
 
-        async function removeCal(calId, memberId) {
-            if (!confirm('Remove this calendar?')) return;
+        async function saveBooking(memberId) {
+            const slugInput = document.getElementById(`booking-slug-${memberId}`);
+            const enabledInput = document.getElementById(`booking-enabled-${memberId}`);
+            const slug = slugInput.value.trim();
+            const enabled = enabledInput.checked;
+
+            if (enabled && !slug) {
+                showMessage('Pick a slug before enabling the booking link.', 'error');
+                return;
+            }
 
             try {
-                const resp = await fetch(API_BASE + `/api/calendars/${calId}`, {
-                    method: 'DELETE',
+                const resp = await fetch(API_BASE + `/api/members/${memberId}/booking`, {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ member_id: memberId }),
+                    body: JSON.stringify({ booking_slug: slug, booking_enabled: enabled }),
                 });
-
                 const data = await resp.json();
                 if (!resp.ok) {
-                    showMessage(data.error || 'Failed to remove', 'error');
+                    showMessage(data.error || 'Failed to save booking settings', 'error');
                     return;
                 }
-
-                document.getElementById(`cal-${calId}`).remove();
-                showMessage('Calendar removed.', 'success');
+                showMessage('Booking settings saved.', 'success');
                 setTimeout(() => window.location.reload(), 600);
             } catch (err) {
                 showMessage('Network error: ' + err.message, 'error');

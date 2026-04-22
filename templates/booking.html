@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book time with {{ member.name }} — {{ org.name }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="org-{{ org.slug }}">
+    <div class="container" style="max-width:640px;">
+        <div style="text-align:center; margin-bottom:24px;">
+            <h1 style="margin-bottom:4px;">Book time with {{ member.name }}</h1>
+            <p class="subtitle" style="margin-bottom:0;">{{ org.name }}</p>
+        </div>
+
+        <!-- Step 1: pick duration + see slots -->
+        <div id="step1">
+            <div class="card">
+                <h2>Pick a length</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Meeting length</label>
+                        <select id="duration" onchange="loadAvailability()">
+                            <option value="15">15 minutes</option>
+                            <option value="30" selected>30 minutes</option>
+                            <option value="45">45 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Timezone</label>
+                        <select id="timezone" onchange="loadAvailability()">
+                            <option value="America/New_York" selected>Eastern</option>
+                            <option value="America/Chicago">Central</option>
+                            <option value="America/Denver">Mountain</option>
+                            <option value="America/Los_Angeles">Pacific</option>
+                            <option value="Europe/London">London</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" id="slotsCard">
+                <h2>Available times</h2>
+                <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
+                    Showing the next 90 days, weekdays during business hours.
+                </p>
+                <div id="slotsContainer">
+                    <div class="loading"><div class="spinner"></div><br>Loading availability…</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: guest details -->
+        <div id="step2" class="hidden">
+            <div class="card">
+                <h2>Your details</h2>
+                <div id="selectedSlotDisplay" style="padding:12px; background:var(--dom-stone-light); border-radius:8px; margin-bottom:16px; border:1px solid var(--dom-stone-border);"></div>
+
+                <div class="form-group">
+                    <label>Your name</label>
+                    <input type="text" id="guestName" placeholder="Jane Doe">
+                </div>
+                <div class="form-group">
+                    <label>Your email</label>
+                    <input type="email" id="guestEmail" placeholder="you@example.com">
+                    <p style="font-size:12px; color:#9ca3af; margin-top:6px;">We'll email you a calendar invite with the Google Meet link.</p>
+                </div>
+                <div class="form-group">
+                    <label>What's this about? (optional)</label>
+                    <input type="text" id="guestNotes" placeholder="Short agenda or question">
+                </div>
+
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-outline" onclick="goToStep(1)">Back</button>
+                    <button class="btn btn-success" id="confirmBtn" onclick="confirmBooking()" style="flex:1;">
+                        Confirm booking
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: done -->
+        <div id="step3" class="hidden">
+            <div class="card" style="text-align:center;">
+                <h2>You're booked.</h2>
+                <p style="font-size:14px; color:var(--dom-gray-400); margin-bottom:16px;">
+                    A calendar invite is on its way to your inbox — with the Google Meet link inside.
+                </p>
+                <div id="successDetails" style="padding:14px; background:var(--dom-stone-light); border-radius:8px; border:1px solid var(--dom-stone-border); text-align:left;"></div>
+            </div>
+        </div>
+
+        <div id="resultMessage" class="hidden"></div>
+    </div>
+
+    <script>
+        const ORG_SLUG = '{{ org.slug }}';
+        const BOOKING_SLUG = '{{ member.booking_slug }}';
+        const API_BASE = `/${ORG_SLUG}`;
+        let selectedSlot = null;
+
+        try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const opt = [...document.getElementById('timezone').options].find(o => o.value === tz);
+            if (opt) opt.selected = true;
+        } catch (e) {}
+
+        function goToStep(n) {
+            ['step1','step2','step3'].forEach((id, i) => {
+                document.getElementById(id).classList.toggle('hidden', i + 1 !== n);
+            });
+        }
+
+        async function loadAvailability() {
+            const container = document.getElementById('slotsContainer');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Loading availability…</div>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/public/availability/${BOOKING_SLUG}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        duration_minutes: parseInt(document.getElementById('duration').value),
+                        timezone: document.getElementById('timezone').value,
+                        days_ahead: 90,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    container.innerHTML = `<div class="message message-error">${data.error || 'Failed to load availability'}</div>`;
+                    return;
+                }
+                renderSlots(data.slots);
+            } catch (err) {
+                container.innerHTML = `<div class="message message-error">Network error: ${err.message}</div>`;
+            }
+        }
+
+        function renderSlots(slots) {
+            const container = document.getElementById('slotsContainer');
+            if (!slots || slots.length === 0) {
+                container.innerHTML = '<div class="loading">No openings in the next 90 days.</div>';
+                return;
+            }
+            const durationMin = parseInt(document.getElementById('duration').value);
+            const byDay = new Map();
+            slots.forEach(slot => {
+                const start = new Date(slot.start);
+                const end = new Date(slot.end);
+                const totalMin = (end - start) / 60000;
+                const blocks = Math.floor(totalMin / durationMin);
+                for (let b = 0; b < blocks; b++) {
+                    const blockStart = new Date(start.getTime() + b * durationMin * 60000);
+                    const blockEnd = new Date(blockStart.getTime() + durationMin * 60000);
+                    const key = blockStart.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                    if (!byDay.has(key)) byDay.set(key, []);
+                    byDay.get(key).push({ start: blockStart, end: blockEnd });
+                }
+            });
+
+            const days = [...byDay.keys()];
+            let html = '';
+            days.forEach((day, di) => {
+                const list = byDay.get(day);
+                const openAttr = di < 2 ? 'open' : '';
+                html += `<details ${openAttr} class="day-group">
+                    <summary class="day-summary">
+                        <span>${day}</span>
+                        <span class="day-count">${list.length} slot${list.length !== 1 ? 's' : ''}</span>
+                    </summary>
+                    <ul class="slots-list" style="margin-top:8px;">`;
+                list.forEach(blk => {
+                    const startStr = blk.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    const endStr = blk.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    html += `<li class="slot-item"
+                                 data-start="${blk.start.toISOString()}"
+                                 data-end="${blk.end.toISOString()}"
+                                 onclick="pickSlot(this)">
+                        <div><div class="slot-time">${startStr} – ${endStr}</div></div>
+                        <div class="slot-duration">${durationMin} min</div>
+                    </li>`;
+                });
+                html += '</ul></details>';
+            });
+            container.innerHTML = html;
+        }
+
+        function pickSlot(el) {
+            selectedSlot = { start: el.dataset.start, end: el.dataset.end };
+            const s = new Date(selectedSlot.start);
+            const e = new Date(selectedSlot.end);
+            const day = s.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            const sStr = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const eStr = e.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            document.getElementById('selectedSlotDisplay').innerHTML = `<strong>${day}</strong><br>${sStr} – ${eStr}`;
+            goToStep(2);
+        }
+
+        async function confirmBooking() {
+            if (!selectedSlot) { showMessage('Pick a time first', 'error'); return; }
+            const name = document.getElementById('guestName').value.trim();
+            const email = document.getElementById('guestEmail').value.trim();
+            const notes = document.getElementById('guestNotes').value.trim();
+            if (!name) { showMessage('Your name is required.', 'error'); return; }
+            if (!email || !email.includes('@')) { showMessage('A valid email is required.', 'error'); return; }
+
+            const btn = document.getElementById('confirmBtn');
+            btn.disabled = true;
+            btn.textContent = 'Booking…';
+            try {
+                const resp = await fetch(`${API_BASE}/api/public/book/${BOOKING_SLUG}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        guest_name: name,
+                        guest_email: email,
+                        notes: notes,
+                        start: selectedSlot.start,
+                        end: selectedSlot.end,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    showMessage(data.error || 'Failed to book.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Confirm booking';
+                    return;
+                }
+                const s = new Date(selectedSlot.start);
+                const day = s.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                const sStr = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                let html = `<strong>${day}</strong><br>${sStr}`;
+                if (data.meet_link) {
+                    html += `<br><br><a href="${data.meet_link}" target="_blank" style="color:#3B9B8F; font-weight:600;">Join Google Meet →</a>`;
+                }
+                document.getElementById('successDetails').innerHTML = html;
+                goToStep(3);
+            } catch (err) {
+                showMessage('Network error: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Confirm booking';
+            }
+        }
+
+        function showMessage(text, type) {
+            const el = document.getElementById('resultMessage');
+            el.className = `message message-${type}`;
+            el.textContent = text;
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 6000);
+        }
+
+        loadAvailability();
+    </script>
+</body>
+</html>

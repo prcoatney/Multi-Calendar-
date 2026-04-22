@@ -1013,6 +1013,77 @@ body.org-bully-pulpit .auth-status.pending {
 }
 
 
+/* ── Day groups (long search windows) ── */
+.day-group {
+  margin-bottom: 10px;
+  border: 1px solid var(--dom-stone-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  background: var(--dom-stone-light);
+}
+
+.day-group[open] {
+  border-color: var(--dom-mint-border);
+}
+
+.day-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--dom-white);
+}
+
+.day-summary::-webkit-details-marker { display: none; }
+
+.day-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dom-emerald);
+  background: var(--dom-mint-dim);
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--dom-mint-border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Type-to-confirm modal ── */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.confirm-modal {
+  max-width: 480px;
+  width: 100%;
+  background: var(--dom-stone);
+  border: 1px solid var(--dom-stone-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.confirm-modal h2 {
+  font-size: 18px;
+  color: var(--dom-white);
+}
+
+/* Inputs inside modal inherit normal styling, but no selection highlight */
+.confirm-modal input {
+  font-family: monospace;
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
