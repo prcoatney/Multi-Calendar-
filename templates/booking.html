@@ -44,7 +44,7 @@
             <div class="card" id="slotsCard">
                 <h2>Available times</h2>
                 <p style="font-size:13px; color:#6b7280; margin-bottom:12px;">
-                    Showing the next 90 days, weekdays during business hours.
+                    Showing the next 14 days, weekdays during business hours.
                 </p>
                 <div id="slotsContainer">
                     <div class="loading"><div class="spinner"></div><br>Loading availability…</div>
@@ -123,7 +123,7 @@
                     body: JSON.stringify({
                         duration_minutes: parseInt(document.getElementById('duration').value),
                         timezone: document.getElementById('timezone').value,
-                        days_ahead: 90,
+                        days_ahead: 14,
                     }),
                 });
                 const data = await resp.json();

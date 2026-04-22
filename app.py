@@ -465,7 +465,7 @@ def public_booking_availability(org_slug, booking_slug):
 
     data = request.get_json() or {}
     duration = int(data.get("duration_minutes", 30))
-    days_ahead = int(data.get("days_ahead", 90))
+    days_ahead = int(data.get("days_ahead", 14))
     work_start = int(data.get("work_hours_start", 9))
     work_end = int(data.get("work_hours_end", 17))
     tz_str = data.get("timezone", "America/New_York")
