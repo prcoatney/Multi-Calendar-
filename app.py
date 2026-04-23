@@ -75,6 +75,7 @@ def require_login():
         "public_booking_page",
         "public_booking_availability",
         "public_booking_create",
+        "api_list_events",
     )
     if request.endpoint in open_endpoints:
         return
