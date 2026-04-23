@@ -137,6 +137,57 @@ def is_member_authorized(org_slug: str, member_id: int) -> bool:
     return creds is not None and creds.valid
 
 
+def list_events(
+    org_slug: str,
+    member_id: int,
+    time_min: str | None = None,
+    time_max: str | None = None,
+    max_results: int = 50,
+    calendar_id: str = "primary",
+) -> list[dict]:
+    """List calendar events for a member within a time range.
+
+    time_min/time_max: RFC3339 timestamps (e.g. '2026-04-26T00:00:00Z').
+    Returns list of simplified event dicts.
+    """
+    creds = get_credentials(org_slug, member_id)
+    if not creds:
+        raise ValueError(f"Member {member_id} in '{org_slug}' has not authorized Google Calendar access.")
+
+    service = build("calendar", "v3", credentials=creds)
+
+    kwargs = {
+        "calendarId": calendar_id,
+        "maxResults": max_results,
+        "singleEvents": True,
+        "orderBy": "startTime",
+    }
+    if time_min:
+        kwargs["timeMin"] = time_min
+    if time_max:
+        kwargs["timeMax"] = time_max
+
+    result = service.events().list(**kwargs).execute()
+    events = result.get("items", [])
+
+    # Simplify to essentials
+    simplified = []
+    for ev in events:
+        start = ev.get("start", {})
+        end = ev.get("end", {})
+        simplified.append({
+            "id": ev.get("id"),
+            "summary": ev.get("summary", "(no title)"),
+            "start": start.get("dateTime", start.get("date", "")),
+            "end": end.get("dateTime", end.get("date", "")),
+            "location": ev.get("location", ""),
+            "description": ev.get("description", ""),
+            "all_day": "date" in start and "dateTime" not in start,
+        })
+
+    return simplified
+
+
 def create_event(
     org_slug: str,
     member_id: int,

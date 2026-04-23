@@ -35,6 +35,7 @@ from google_calendar import (
     is_member_authorized,
     create_event,
     create_event_all_members,
+    list_events,
 )
 
 app = Flask(__name__)
@@ -593,6 +594,60 @@ def admin_create_org():
         return jsonify({"error": str(e)}), 409
 
     return jsonify({"success": True, "slug": slug})
+
+
+# ── Events API (for external consumers like reMarkable planner) ──
+
+@app.route("/api/<org_slug>/members/<int:member_id>/events")
+def api_list_events(org_slug, member_id):
+    """List calendar events for a member. Query params: start, end, max.
+
+    Example: /api/dominion/members/3/events?start=2026-04-26&end=2026-05-03
+    Returns JSON array of events.
+    """
+    # API key auth — simple bearer token
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    auth_header = request.headers.get("Authorization", "")
+    api_key_param = request.args.get("key", "")
+
+    if api_key and not (
+        auth_header == f"Bearer {api_key}" or api_key_param == api_key
+    ):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    org = get_org_by_slug(org_slug)
+    if not org:
+        return jsonify({"error": "Org not found"}), 404
+
+    if not member_belongs_to_org(member_id, org_slug):
+        return jsonify({"error": "Member not in org"}), 404
+
+    if not is_member_authorized(org_slug, member_id):
+        return jsonify({"error": "Member not authorized for Google Calendar"}), 403
+
+    # Parse date params → RFC3339
+    start = request.args.get("start", "")
+    end = request.args.get("end", "")
+    max_results = int(request.args.get("max", 50))
+
+    time_min = None
+    time_max = None
+    if start:
+        if "T" not in start:
+            start += "T00:00:00Z"
+        time_min = start
+    if end:
+        if "T" not in end:
+            end += "T23:59:59Z"
+        time_max = end
+
+    try:
+        events = list_events(org_slug, member_id, time_min, time_max, max_results)
+        return jsonify(events)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 403
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
