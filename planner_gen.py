@@ -23,8 +23,8 @@ CYAN = (0, 160, 170)
 MAGENTA = (180, 60, 100)
 TEXT = (60, 60, 65)
 INK = (45, 50, 55)
-LIGHT = (200, 205, 210)
-VLIGHT = (230, 232, 235)
+LIGHT = (160, 165, 170)
+VLIGHT = (190, 192, 195)
 WHITE = (255, 255, 255)
 GRADIENT = [(45,55,80),(50,100,170),(0,160,170),(100,170,80),
             (200,180,50),(200,140,60),(180,90,100),(100,190,200)]
@@ -162,7 +162,7 @@ def page_month(pdf, year, month, events, links):
     for week in cal_mod.Calendar(6).monthdatescalendar(year, month):
         for di, day in enumerate(week):
             x = M_L + di*cw
-            pdf.set_draw_color(*LIGHT); pdf.set_line_width(0.2); pdf.rect(x, gy, cw, rh)
+            pdf.set_draw_color(*LIGHT); pdf.set_line_width(0.4); pdf.rect(x, gy, cw, rh)
             if day.month == month:
                 pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*NAVY)
                 pdf.set_xy(x+2, gy+1); pdf.cell(16, 10, str(day.day))
@@ -193,7 +193,7 @@ def page_week(pdf, ws, events, links):
         pdf.set_xy(x, ty+1); pdf.cell(cw-1, 8, DAYS[i][:3], align="C")
         pdf.set_font("Helvetica", "B", 9); pdf.set_xy(x, ty+8); pdf.cell(cw-1, 9, str(d.day), align="C")
         if "d_%d"%i in links: pdf.link(x, ty, cw-1, 18, links["d_%d"%i])
-        pdf.set_draw_color(*LIGHT); pdf.set_line_width(0.2); pdf.rect(x, ty+18, cw-1, ch-18)
+        pdf.set_draw_color(*LIGHT); pdf.set_line_width(0.4); pdf.rect(x, ty+18, cw-1, ch-18)
         ey = ty + 22
         col_inner = cw - 6
         for t, title in sorted(events.get((d.year, d.month, d.day), [])):
@@ -215,9 +215,9 @@ def page_day(pdf, d, day_idx, events):
     hours = list(range(6, 20)); sh = (M_B - st - 15) / len(hours)
     for hi, h in enumerate(hours):
         y = st + hi * sh; hr = h if h <= 12 else h - 12
-        pdf.set_font("Helvetica", "", 6); pdf.set_text_color(*LIGHT)
+        pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*LIGHT)
         pdf.set_xy(M_L, y+1); pdf.cell(tc, sh*0.5, "%d%s" % (hr, "a" if h<12 else "p"), align="R")
-        pdf.set_draw_color(*VLIGHT); pdf.set_line_width(0.2); pdf.line(M_L+tc+4, y, M_L+sw, y)
+        pdf.set_draw_color(*VLIGHT); pdf.set_line_width(0.4); pdf.line(M_L+tc+4, y, M_L+sw, y)
     for t, title in sorted(events.get((d.year, d.month, d.day), [])):
         try: hr = parse_hour(t)
         except: continue
