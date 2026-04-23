@@ -7,3 +7,4 @@ google-auth-httplib2==0.2.0
 requests==2.32.3
 pytz==2024.2
 gunicorn==23.0.0
+fpdf2

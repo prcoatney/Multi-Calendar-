@@ -76,6 +76,7 @@ def require_login():
         "public_booking_availability",
         "public_booking_create",
         "api_list_events",
+        "planner_pdf",
     )
     if request.endpoint in open_endpoints:
         return
@@ -651,7 +652,90 @@ def api_list_events(org_slug, member_id):
         return jsonify({"error": str(e)}), 500
 
 
-# ── Injection Queue (for reMarkable living planner) ──
+# ── Planner PDF endpoint (for reMarkable living planner) ──
+
+from planner_gen import generate_planner, events_hash as planner_events_hash
+from planner_gen import parse_hour  # reuse
+
+# Cache: {device_token: {"hash": str, "pdf": bytes}}
+_planner_cache = {}
+
+
+@app.route("/api/planner/pdf")
+def planner_pdf():
+    """Device pulls its planner PDF from here.
+
+    GET /api/planner/pdf?token=xxx          — download PDF
+    GET /api/planner/pdf?token=xxx&check=1  — just check hash (lightweight)
+    """
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+
+    # Map token to org/member (hardcoded for now, DB in production)
+    token_map = {
+        "rmpp-coat-001": ("cross-formed-kids", 2),
+    }
+    if token not in token_map:
+        return jsonify({"error": "unknown device"}), 404
+    org_slug, member_id = token_map[token]
+
+    # Get current week (Sunday start)
+    today = datetime.utcnow().date()
+    week_start = today - timedelta(days=(today.weekday() + 1) % 7)
+    week_end = week_start + timedelta(days=8)
+
+    # Fetch events
+    try:
+        raw_events = list_events(org_slug, member_id,
+                                 week_start.isoformat() + "T00:00:00Z",
+                                 week_end.isoformat() + "T00:00:00Z", 100)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Convert to planner format
+    events = {}
+    for ev in raw_events:
+        s = ev.get("start", "")
+        if not s or "T" not in s:
+            continue
+        try:
+            d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            hr, mn = d.hour, d.minute
+            ampm = "a" if hr < 12 else "p"
+            h12 = hr if hr <= 12 else hr - 12
+            if h12 == 0: h12 = 12
+            t = "%d:%02d%s" % (h12, mn, ampm) if mn else "%d%s" % (h12, ampm)
+            events.setdefault((d.year, d.month, d.day), []).append((t, ev.get("summary", "")))
+        except:
+            continue
+    for k in events:
+        events[k].sort()
+
+    h = planner_events_hash(events)
+
+    # Check-only mode
+    if request.args.get("check"):
+        return jsonify({"hash": h})
+
+    # Return cached PDF if hash matches
+    cached = _planner_cache.get(token)
+    if cached and cached["hash"] == h:
+        from flask import Response
+        return Response(cached["pdf"], mimetype="application/pdf",
+                       headers={"X-Planner-Hash": h})
+
+    # Generate fresh PDF
+    pdf_bytes = generate_planner(events, week_start)
+    _planner_cache[token] = {"hash": h, "pdf": pdf_bytes}
+
+    from flask import Response
+    return Response(pdf_bytes, mimetype="application/pdf",
+                   headers={"X-Planner-Hash": h})
+
+
+# ── Legacy injection queue (kept for compatibility) ──
 
 # In-memory queue per device. In production, this would be a DB table.
 # Format: {device_id: [{"id": str, "page": int, "x": int, "y": int, "text": str, "scale": int}, ...]}
