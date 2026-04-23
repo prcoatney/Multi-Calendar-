@@ -651,6 +651,154 @@ def api_list_events(org_slug, member_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ── Injection Queue (for reMarkable living planner) ──
+
+# In-memory queue per device. In production, this would be a DB table.
+# Format: {device_id: [{"id": str, "page": int, "x": int, "y": int, "text": str, "scale": int}, ...]}
+_inject_queues = {}
+_injected_ids = set()  # track what's been confirmed
+
+
+@app.route("/api/planner/sync", methods=["POST"])
+def planner_sync():
+    """Called by Multi Calendar internally when calendar changes.
+    Computes injection commands for a planner layout and queues them.
+
+    Body: {"device_id": str, "org_slug": str, "member_id": int,
+           "week_start": "2026-04-26", "planner_layout": {...}}
+    """
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {api_key}":
+            return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    device_id = data.get("device_id", "default")
+    org_slug = data.get("org_slug", "cross-formed-kids")
+    member_id = data.get("member_id", 2)
+    week_start = data.get("week_start", "")
+
+    if not week_start:
+        return jsonify({"error": "week_start required"}), 400
+
+    # Fetch events for the week
+    from datetime import datetime, timedelta
+    ws = datetime.fromisoformat(week_start)
+    we = ws + timedelta(days=7)
+
+    try:
+        events = list_events(org_slug, member_id,
+                            ws.isoformat() + "Z", we.isoformat() + "Z", 100)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Build injection commands based on planner layout
+    layout = data.get("planner_layout", {})
+    # layout: {"pages": {day_offset: page_num}, "time_slots": {hour: y_position}, "x": inject_x}
+    pages = layout.get("pages", {})
+    time_slots = layout.get("time_slots", {})
+    inject_x = layout.get("x", 1500)
+    scale = layout.get("scale", 120)
+    spacing = layout.get("spacing", 28)
+
+    commands = []
+    for ev in events:
+        start = ev.get("start", "")
+        if not start or "T" not in start:
+            continue
+        try:
+            dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            day_offset = (dt.date() - ws.date()).days
+            page = pages.get(str(day_offset))
+            if page is None:
+                continue
+            hour = dt.hour + dt.minute / 60.0
+            # Find nearest time slot
+            best_y = None
+            best_dist = 999
+            for h_str, y in time_slots.items():
+                dist = abs(float(h_str) - hour)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_y = y
+            if best_y is None:
+                continue
+
+            cmd_id = "%s-%s-%s" % (device_id, ev.get("id", ""), start)
+            if cmd_id in _injected_ids:
+                continue
+
+            title = ev.get("summary", "")
+            # Clean for stroke font
+            clean = ''.join(c for c in title if c.isalnum() or c in " .,-!?':;/()+= ")
+
+            commands.append({
+                "id": cmd_id,
+                "page": page,
+                "x": inject_x,
+                "y": best_y,
+                "text": clean,
+                "scale": scale,
+                "spacing": spacing,
+            })
+        except:
+            continue
+
+    _inject_queues[device_id] = commands
+    return jsonify({"queued": len(commands)})
+
+
+@app.route("/api/planner/poll")
+def planner_poll():
+    """Device polls this endpoint for pending injections.
+
+    GET /api/planner/poll?device_id=xxx&key=xxx
+    Returns: {"items": [...]} or {"items": []} if nothing pending.
+    """
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    device_id = request.args.get("device_id", "default")
+    items = _inject_queues.get(device_id, [])
+    return jsonify({"items": items})
+
+
+@app.route("/api/planner/confirm", methods=["POST"])
+def planner_confirm():
+    """Device confirms injection of specific items.
+
+    POST body: {"device_id": str, "ids": [str, ...]}
+    """
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {api_key}":
+            return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    device_id = data.get("device_id", "default")
+    confirmed = data.get("ids", [])
+
+    _injected_ids.update(confirmed)
+
+    # Remove confirmed items from queue
+    if device_id in _inject_queues:
+        _inject_queues[device_id] = [
+            item for item in _inject_queues[device_id]
+            if item["id"] not in confirmed
+        ]
+
+    return jsonify({"confirmed": len(confirmed)})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=True, host="0.0.0.0", port=port)
