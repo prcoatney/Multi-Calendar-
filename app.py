@@ -77,6 +77,9 @@ def require_login():
         "public_booking_create",
         "api_list_events",
         "planner_pdf",
+        "planner_dashboard",
+        "planner_create_token",
+        "planner_setup_script",
     )
     if request.endpoint in open_endpoints:
         return
@@ -673,13 +676,16 @@ def planner_pdf():
     if not token:
         return jsonify({"error": "token required"}), 400
 
-    # Map token to org/member (hardcoded for now, DB in production)
-    token_map = {
-        "rmpp-coat-001": ("cross-formed-kids", 2),
-    }
-    if token not in token_map:
-        return jsonify({"error": "unknown device"}), 404
-    org_slug, member_id = token_map[token]
+    # Look up token in DB
+    from db import get_device_token
+    device = get_device_token(token)
+    if not device:
+        # Legacy fallback for existing device
+        if token == "rmpp-coat-001":
+            device = {"org_slug": "cross-formed-kids", "member_id": 2}
+        else:
+            return jsonify({"error": "unknown device"}), 404
+    org_slug, member_id = device["org_slug"], device["member_id"]
 
     # Get current week (Sunday start)
     today = datetime.utcnow().date()
@@ -736,6 +742,181 @@ def planner_pdf():
     from flask import Response
     return Response(pdf_bytes, mimetype="application/pdf",
                    headers={"X-Planner-Hash": h})
+
+
+# ── Planner Dashboard ──
+
+@app.route("/planner")
+def planner_dashboard():
+    """User dashboard — see token, connect calendar, get setup script."""
+    from db import get_device_token, create_device_token, get_member_tokens
+
+    # For now, hardcode to CFK org member 2 (patron).
+    # In production: auth → lookup user → show their dashboard.
+    org_slug = "cross-formed-kids"
+    member_id = 2
+
+    tokens = get_member_tokens(org_slug, member_id)
+    cal_connected = is_member_authorized(org_slug, member_id)
+
+    html = """<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CFK Living Planner</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#f8f9fa;color:#323741;min-height:100vh}
+.bar{width:100%%;height:6px;background:linear-gradient(90deg,#233255,#3764B4,#009B9C,#78B450,#EBD24B,#E19B37,#D76E69,#8CCDD7)}
+.container{max-width:600px;margin:0 auto;padding:40px 24px}
+h1{font-size:28px;font-weight:700;color:#233255;margin-bottom:4px}
+.sub{font-size:11px;letter-spacing:3px;color:#233255;text-transform:uppercase;margin-bottom:32px}
+.card{background:white;border-radius:12px;padding:24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+.card h2{font-size:16px;color:#233255;margin-bottom:12px}
+.status{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600}
+.green{background:#e8f8ea;color:#1a6b2a}
+.red{background:#fde8e8;color:#991b1b}
+.token{font-family:monospace;font-size:18px;background:#f0f2f5;padding:12px 16px;border-radius:8px;margin:12px 0;word-break:break-all}
+code{background:#1a1a2e;color:#0f0;padding:16px;border-radius:8px;display:block;font-size:13px;margin:12px 0;white-space:pre-wrap;word-break:break-all}
+.btn{display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#233255,#009B9C);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;margin:8px 4px 8px 0}
+.btn:hover{opacity:0.9}
+.btn.secondary{background:#eee;color:#333}
+</style>
+</head><body>
+<div class="bar"></div>
+<div class="container">
+<h1>Living Planner</h1>
+<p class="sub">Cross Formed Kids</p>
+
+<div class="card">
+<h2>Google Calendar</h2>
+<span class="status """+("green" if cal_connected else "red")+"""">"""+("Connected" if cal_connected else "Not Connected")+"""</span>
+"""+("" if cal_connected else '<br><a class="btn" href="/cross-formed-kids/google-auth/2" style="margin-top:12px">Connect Calendar</a>')+"""
+</div>
+
+<div class="card">
+<h2>Your Device Token</h2>
+"""
+    if tokens:
+        html += '<div class="token">%s</div>' % tokens[0]["token"]
+    else:
+        html += '<p>No device registered yet.</p><a class="btn" href="/planner/new-token">Create Token</a>'
+
+    html += """
+</div>
+
+<div class="card">
+<h2>Device Setup</h2>
+<p style="margin-bottom:12px">Plug your reMarkable into USB and paste this into Terminal:</p>
+<code>curl -sL https://"""+request.host+"""/planner/setup?token="""+((tokens[0]["token"]) if tokens else "YOUR_TOKEN")+""" | bash</code>
+</div>
+
+<div class="card">
+<h2>How It Works</h2>
+<ol style="padding-left:20px;line-height:2">
+<li>Connect your Google Calendar above</li>
+<li>Run the setup command on your reMarkable (one time)</li>
+<li>Your planner updates automatically every 5 minutes</li>
+<li>Close and reopen the planner to see new events</li>
+</ol>
+</div>
+
+</div></body></html>"""
+    return html
+
+
+@app.route("/planner/new-token")
+def planner_create_token():
+    from db import create_device_token
+    token = create_device_token("cross-formed-kids", 2, "reMarkable")
+    return redirect("/planner")
+
+
+@app.route("/planner/setup")
+def planner_setup_script():
+    """Returns a bash setup script for the device."""
+    token = request.args.get("token", "")
+    server = "https://" + request.host
+
+    script = """#!/bin/bash
+# CFK Living Planner — reMarkable Setup
+# Run this with your reMarkable connected via USB
+
+set -e
+PASS="$1"
+if [ -z "$PASS" ]; then
+    echo "Usage: curl -sL URL | bash -s YOUR_DEVICE_PASSWORD"
+    echo ""
+    echo "Find your password: Settings > General > Help > Copyrights > scroll to bottom"
+    exit 1
+fi
+
+HOST="10.11.99.1"
+echo "Connecting to reMarkable..."
+sshpass -p "$PASS" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@$HOST 'echo OK' || {
+    echo "Cannot connect. Is your reMarkable plugged in via USB?"
+    exit 1
+}
+
+echo "Installing planner service..."
+sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@$HOST '
+mkdir -p /home/root/tutor
+
+cat > /home/root/tutor/pull.sh << "PULLSCRIPT"
+#!/bin/sh
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_FILE
+URL="SERVER_URL/api/planner/pdf?token=DEVICE_TOKEN"
+DOCDIR="/home/root/.local/share/remarkable/xochitl"
+UUID="cfk-planner-live-001"
+PDF="$DOCDIR/$UUID.pdf"
+TMP="$PDF.tmp"
+while true; do
+    WIFI_IP=$(ip addr show wlan0 2>/dev/null | grep "inet " | awk "{print \\$2}" | cut -d/ -f1)
+    if [ -n "$WIFI_IP" ]; then
+        ps | grep "dropbear.*2222" | grep -v grep > /dev/null 2>&1 || dropbear -p ${WIFI_IP}:2222 -R 2>/dev/null
+    fi
+    wget -q -T 15 -O "$TMP" "$URL" 2>/dev/null
+    if [ -f "$TMP" ] && [ $(wc -c < "$TMP") -gt 5000 ]; then
+        if ! cmp -s "$TMP" "$PDF" 2>/dev/null; then
+            mv "$TMP" "$PDF"
+            rm -rf "$DOCDIR/$UUID.thumbnails" "$DOCDIR/$UUID.cache"
+        else
+            rm -f "$TMP"
+        fi
+    else
+        rm -f "$TMP"
+    fi
+    sleep 300
+done
+PULLSCRIPT
+chmod +x /home/root/tutor/pull.sh
+
+cat > /etc/systemd/system/cfk-pull.service << "SVCFILE"
+[Unit]
+Description=CFK Planner Pull
+After=network-online.target xochitl.service
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/home/root/tutor/pull.sh
+Restart=always
+RestartSec=60
+[Install]
+WantedBy=multi-user.target
+SVCFILE
+
+systemctl daemon-reload
+systemctl enable cfk-pull.service
+systemctl start cfk-pull.service
+'
+
+echo ""
+echo "Done! Your planner will appear within 5 minutes."
+echo "Unplug your reMarkable and enjoy."
+""".replace("SERVER_URL", server).replace("DEVICE_TOKEN", token)
+
+    return script, 200, {"Content-Type": "text/plain"}
 
 
 # ── Legacy injection queue (kept for compatibility) ──

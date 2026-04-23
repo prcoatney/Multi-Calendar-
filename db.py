@@ -142,6 +142,19 @@ def init_db():
     if "booking_enabled" not in member_cols:
         conn.execute("ALTER TABLE members ADD COLUMN booking_enabled INTEGER NOT NULL DEFAULT 0")
 
+    # -- Device tokens table (reMarkable planner) --
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            token TEXT PRIMARY KEY,
+            org_slug TEXT NOT NULL,
+            member_id INTEGER NOT NULL,
+            device_name TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (org_slug) REFERENCES organizations(slug),
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )
+    """)
+
     # -- Calendars table --
     conn.execute("""
         CREATE TABLE IF NOT EXISTS calendars (
@@ -545,6 +558,41 @@ def get_member_calendar_map(org_slug):
         WHERE m.org_slug = ?
         ORDER BY m.id, c.id
     """, (org_slug,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Device token functions ──
+
+def create_device_token(org_slug, member_id, device_name=""):
+    """Create a new device token. Returns the token string."""
+    import uuid
+    token = "rmpp-" + str(uuid.uuid4())[:8]
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO device_tokens (token, org_slug, member_id, device_name) VALUES (?, ?, ?, ?)",
+        (token, org_slug, member_id, device_name))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def get_device_token(token):
+    """Look up a device token. Returns dict or None."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT token, org_slug, member_id, device_name FROM device_tokens WHERE token = ?",
+        (token,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_member_tokens(org_slug, member_id):
+    """Get all device tokens for a member."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT token, device_name, created_at FROM device_tokens WHERE org_slug = ? AND member_id = ?",
+        (org_slug, member_id)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
