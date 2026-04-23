@@ -260,7 +260,9 @@ def generate_planner(events, week_start):
     for i in range(7):
         page_journal(pdf, days[i], i); nav_bar(pdf, links, "j_%d"%i, days)
 
-    return pdf.output()
+    buf = io.BytesIO()
+    pdf.output(buf)
+    return buf.getvalue()
 
 
 def events_hash(events):
