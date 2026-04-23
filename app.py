@@ -79,6 +79,7 @@ def require_login():
         "planner_pdf",
         "planner_dashboard",
         "planner_create_token",
+        "planner_seed_token",
         "planner_setup_script",
     )
     if request.endpoint in open_endpoints:
@@ -823,6 +824,23 @@ code{background:#1a1a2e;color:#0f0;padding:16px;border-radius:8px;display:block;
 
 </div></body></html>"""
     return html
+
+
+@app.route("/planner/seed-token", methods=["POST"])
+def planner_seed_token():
+    """Seed a specific token (admin use)."""
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    if not data or not data.get("token"):
+        return jsonify({"error": "token required"}), 400
+    from db import get_db
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO device_tokens (token, org_slug, member_id, device_name) VALUES (?, ?, ?, ?)",
+                 (data["token"], data.get("org_slug", ""), data.get("member_id", 0), data.get("device_name", "")))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "token": data["token"]})
 
 
 @app.route("/planner/new-token")
