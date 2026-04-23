@@ -37,23 +37,44 @@ NAV_Y, NAV_H = 20, 22
 HY = NAV_Y + NAV_H + 12
 
 
-def handwrite(pdf, text, x, y, scale=8, color=INK):
+def handwrite(pdf, text, x, y, scale=8, color=INK, max_width=None):
     r, g, b = color
     pdf.set_draw_color(r, g, b)
     pdf.set_line_width(0.8)
     cx = x
-    for ch in text:
-        if ch == ' ':
-            cx += scale * 0.4; continue
-        if ch not in FONT:
-            continue
-        cd = FONT[ch]
-        for stroke in cd["strokes"]:
-            pts = stroke["points"]
-            for i in range(len(pts) - 1):
-                pdf.line(pts[i]["x"]*scale+cx, pts[i]["y"]*scale+y,
-                         pts[i+1]["x"]*scale+cx, pts[i+1]["y"]*scale+y)
-        cx += cd.get("width_ratio", 0.6) * scale + scale * 0.3
+    line_y = y
+    char_w = lambda ch: FONT[ch].get("width_ratio", 0.6) * scale + scale * 0.3 if ch in FONT else scale * 0.4
+    if max_width:
+        words = text.split(' ')
+        for wi, word in enumerate(words):
+            word_w = sum(char_w(ch) for ch in word)
+            if cx + word_w > x + max_width and cx > x:
+                cx = x
+                line_y += scale * 1.4
+            for ch in word:
+                if ch not in FONT: continue
+                cd = FONT[ch]
+                for stroke in cd["strokes"]:
+                    pts = stroke["points"]
+                    for i in range(len(pts) - 1):
+                        pdf.line(pts[i]["x"]*scale+cx, pts[i]["y"]*scale+line_y,
+                                 pts[i+1]["x"]*scale+cx, pts[i+1]["y"]*scale+line_y)
+                cx += cd.get("width_ratio", 0.6) * scale + scale * 0.3
+            cx += scale * 0.4
+        return line_y - y
+    else:
+        for ch in text:
+            if ch == ' ':
+                cx += scale * 0.4; continue
+            if ch not in FONT: continue
+            cd = FONT[ch]
+            for stroke in cd["strokes"]:
+                pts = stroke["points"]
+                for i in range(len(pts) - 1):
+                    pdf.line(pts[i]["x"]*scale+cx, pts[i]["y"]*scale+y,
+                             pts[i+1]["x"]*scale+cx, pts[i+1]["y"]*scale+y)
+            cx += cd.get("width_ratio", 0.6) * scale + scale * 0.3
+        return 0
 
 
 def gradient(pdf, y, h=4):
@@ -146,8 +167,10 @@ def page_month(pdf, year, month, events, links):
                 pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*NAVY)
                 pdf.set_xy(x+2, gy+1); pdf.cell(16, 10, str(day.day))
                 ey = gy + 14
+                cell_w = cw - 4
                 for t, title in sorted(events.get((day.year, day.month, day.day), []))[:6]:
-                    handwrite(pdf, "%s %s" % (t, title[:8]), x+2, ey, scale=3, color=INK); ey += 9
+                    extra = handwrite(pdf, "%s %s" % (t, title), x+2, ey, scale=3, color=INK, max_width=cell_w)
+                    ey += 9 + extra
             else:
                 pdf.set_font("Helvetica", "", 7); pdf.set_text_color(*LIGHT)
                 pdf.set_xy(x+2, gy+1); pdf.cell(16, 10, str(day.day))
@@ -172,9 +195,11 @@ def page_week(pdf, ws, events, links):
         if "d_%d"%i in links: pdf.link(x, ty, cw-1, 18, links["d_%d"%i])
         pdf.set_draw_color(*LIGHT); pdf.set_line_width(0.2); pdf.rect(x, ty+18, cw-1, ch-18)
         ey = ty + 22
+        col_inner = cw - 6
         for t, title in sorted(events.get((d.year, d.month, d.day), [])):
-            handwrite(pdf, t, x+2, ey, scale=4, color=(140,150,155))
-            handwrite(pdf, title, x+2, ey+7, scale=5, color=INK); ey += 20
+            handwrite(pdf, t, x+2, ey, scale=4, color=(140,150,155), max_width=col_inner)
+            extra = handwrite(pdf, title, x+2, ey+7, scale=5, color=INK, max_width=col_inner)
+            ey += 20 + extra
     footer(pdf)
 
 
