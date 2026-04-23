@@ -707,11 +707,14 @@ def planner_pdf():
             h12 = hr if hr <= 12 else hr - 12
             if h12 == 0: h12 = 12
             t = "%d:%02d%s" % (h12, mn, ampm) if mn else "%d%s" % (h12, ampm)
-            events.setdefault((d.year, d.month, d.day), []).append((t, ev.get("summary", "")))
+            sort_key = d.hour * 60 + d.minute
+            events.setdefault((d.year, d.month, d.day), []).append((sort_key, t, ev.get("summary", "")))
         except:
             continue
+    # Sort by actual time, then strip sort key
     for k in events:
         events[k].sort()
+        events[k] = [(t, title) for _, t, title in events[k]]
 
     h = planner_events_hash(events)
 
