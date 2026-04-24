@@ -230,6 +230,15 @@ def generate_hyperpaper(events, year=2026):
             page.merge_page(overlay_reader.pages[i])
         writer.add_page(page)
 
+    # Preserve named destinations (links depend on these)
+    from PyPDF2.generic import NameObject
+    try:
+        root_src = reader.trailer['/Root'].get_object()
+        if '/Names' in root_src:
+            writer._root_object[NameObject('/Names')] = root_src['/Names']
+    except Exception:
+        pass
+
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()
