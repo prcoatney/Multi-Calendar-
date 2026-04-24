@@ -202,14 +202,31 @@ def generate_hyperpaper(events, year=2026):
                 continue
             break
 
-    # Merge overlay onto base PDF
+    # Track which pages have overlay content
+    pages_with_events = set()
+    if events:
+        for m in range(1, 13):
+            mp = month_page(m)
+            cal = cal_mod.Calendar(0)
+            for week in cal.monthdayscalendar(year, m):
+                for d in week:
+                    if d and events.get((year, m, d)):
+                        pages_with_events.add(mp)
+        for (y, m, d) in events:
+            if y == year:
+                pages_with_events.add(day_page(m, d))
+                # Weekly page
+                dt = date(year, m, d)
+                pages_with_events.add(week_page(dt.isocalendar()[1]))
+
+    # Merge overlay ONLY on pages with events — preserve links on all others
     overlay_bytes = overlay.output()
     overlay_reader = PdfReader(io.BytesIO(overlay_bytes))
     writer = PdfWriter()
 
     for i in range(len(reader.pages)):
         page = reader.pages[i]
-        if i < len(overlay_reader.pages):
+        if i in pages_with_events and i < len(overlay_reader.pages):
             page.merge_page(overlay_reader.pages[i])
         writer.add_page(page)
 
