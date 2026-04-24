@@ -5,7 +5,7 @@ members, calendars, availability search, and scheduling.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from flask import Flask, request, jsonify, redirect, render_template, session, url_for, abort
 import pytz
 
