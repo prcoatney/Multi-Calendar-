@@ -10,7 +10,7 @@ import json
 import os
 from datetime import date, datetime, timedelta
 from fpdf import FPDF
-from PyPDF2 import PdfReader, PdfWriter
+import pikepdf
 
 BASE_PDF = os.path.join(os.path.dirname(__file__), "hyperpaper_base.pdf")
 FONT_PATH = os.path.join(os.path.dirname(__file__), "stroke_font.json")
@@ -103,8 +103,10 @@ def week_page(week_num):
 
 def generate_hyperpaper(events, year=2026):
     """Generate merged Hyperpaper PDF with calendar overlay. Returns bytes."""
-    reader = PdfReader(BASE_PDF)
-    num_pages = len(reader.pages)
+    # Count pages from base PDF
+    tmp_base = pikepdf.open(BASE_PDF)
+    num_pages = len(tmp_base.pages)
+    tmp_base.close()
 
     overlay = FPDF(orientation='P', unit='pt', format=(HP_W, HP_H))
 
@@ -215,32 +217,22 @@ def generate_hyperpaper(events, year=2026):
         for (y, m, d) in events:
             if y == year:
                 pages_with_events.add(day_page(m, d))
-                # Weekly page
                 dt = date(year, m, d)
                 pages_with_events.add(week_page(dt.isocalendar()[1]))
 
-    # Merge overlay ONLY on pages with events — preserve links on all others
+    # Merge using pikepdf — preserves all links, named destinations, annotations
     overlay_bytes = overlay.output()
-    overlay_reader = PdfReader(io.BytesIO(overlay_bytes))
-    writer = PdfWriter()
+    base = pikepdf.open(BASE_PDF)
+    ovl = pikepdf.open(io.BytesIO(overlay_bytes))
 
-    for i in range(len(reader.pages)):
-        page = reader.pages[i]
-        if i in pages_with_events and i < len(overlay_reader.pages):
-            page.merge_page(overlay_reader.pages[i])
-        writer.add_page(page)
-
-    # Preserve named destinations (links depend on these)
-    from PyPDF2.generic import NameObject
-    try:
-        root_src = reader.trailer['/Root'].get_object()
-        if '/Names' in root_src:
-            writer._root_object[NameObject('/Names')] = root_src['/Names']
-    except Exception:
-        pass
+    for page_idx in pages_with_events:
+        if page_idx < len(base.pages) and page_idx < len(ovl.pages):
+            base.pages[page_idx].add_overlay(ovl.pages[page_idx])
 
     buf = io.BytesIO()
-    writer.write(buf)
+    base.save(buf)
+    ovl.close()
+    base.close()
     return buf.getvalue()
 
 
