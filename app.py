@@ -77,6 +77,7 @@ def require_login():
         "public_booking_create",
         "api_list_events",
         "planner_pdf",
+        "hyperpaper_pdf",
         "planner_dashboard",
         "planner_create_token",
         "planner_seed_token",
@@ -660,9 +661,88 @@ def api_list_events(org_slug, member_id):
 
 from planner_gen import generate_planner, events_hash as planner_events_hash
 from planner_gen import parse_hour  # reuse
+from hyperpaper_gen import generate_hyperpaper, events_hash as hp_events_hash
 
 # Cache: {device_token: {"hash": str, "pdf": bytes}}
 _planner_cache = {}
+_hyperpaper_cache = {}
+
+
+@app.route("/api/hyperpaper/pdf")
+def hyperpaper_pdf():
+    """Device pulls its Hyperpaper PDF with calendar overlay."""
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+
+    from db import get_device_token
+    device = get_device_token(token)
+    if not device:
+        if token == "rmpp-coat-001":
+            device = {"org_slug": "cross-formed-kids", "member_id": 2}
+        else:
+            return jsonify({"error": "unknown device"}), 404
+    org_slug, member_id = device["org_slug"], device["member_id"]
+
+    # Fetch full year events
+    year = 2026
+    events = {}
+    for m in range(1, 13):
+        start = date(year, m, 1)
+        end = date(year, m + 1, 1) if m < 12 else date(year + 1, 1, 1)
+        try:
+            raw = list_events(org_slug, member_id,
+                             start.isoformat() + "T00:00:00Z",
+                             end.isoformat() + "T00:00:00Z", 500)
+        except:
+            continue
+        for ev in raw:
+            s = ev.get("start", "")
+            if not s or "T" not in s: continue
+            try:
+                d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                hr, mn = d.hour, d.minute
+                ampm = "a" if hr < 12 else "p"
+                h12 = hr if hr <= 12 else hr - 12
+                if h12 == 0: h12 = 12
+                t = "%d:%02d%s" % (h12, mn, ampm) if mn else "%d%s" % (h12, ampm)
+                sort_key = hr * 60 + mn
+                title = ev.get("summary", "")
+                title = title.replace("\u2018","'").replace("\u2019","'").replace("\u201c",'"').replace("\u201d",'"')
+                title = ''.join(c if ord(c) < 256 else '?' for c in title)
+                events.setdefault((d.year, d.month, d.day), []).append((sort_key, t, title))
+            except: continue
+
+    # Sort, filter, strip sort key
+    from hyperpaper_gen import SKIP_WORDS, SKIP_CONTAINS
+    for k in events:
+        events[k].sort()
+        filtered = []
+        for _, t, title in events[k]:
+            tl = title.strip().lower()
+            if tl in SKIP_WORDS: continue
+            if any(s in tl for s in SKIP_CONTAINS): continue
+            filtered.append((t, title))
+        events[k] = filtered
+    events = {k: v for k, v in events.items() if v}
+
+    h = hp_events_hash(events)
+
+    if request.args.get("check"):
+        return jsonify({"hash": h})
+
+    cached = _hyperpaper_cache.get(token)
+    if cached and cached["hash"] == h:
+        from flask import Response
+        return Response(cached["pdf"], mimetype="application/pdf",
+                       headers={"X-Planner-Hash": h})
+
+    pdf_bytes = generate_hyperpaper(events)
+    _hyperpaper_cache[token] = {"hash": h, "pdf": pdf_bytes}
+
+    from flask import Response
+    return Response(pdf_bytes, mimetype="application/pdf",
+                   headers={"X-Planner-Hash": h})
 
 
 @app.route("/api/planner/pdf")
