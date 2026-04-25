@@ -193,10 +193,12 @@ def generate_hyperpaper(events, year=2026):
                         sep_y = DAY_HOUR_Y[hr]
                         half_offset = DAY_SLOT_H * (mn / 60.0)
                         dot_y = pdf_y_to_fpdf_y(sep_y - half_offset)
+                        # Title first, measure wrap height
                         title_y = dot_y - 7
-                        time_y = dot_y + 1
-                        handwrite(overlay, title, DAY_SCHED_X, title_y,
+                        title_extra = handwrite(overlay, title, DAY_SCHED_X, title_y,
                                   scale=4.5, max_width=DAY_SCHED_W)
+                        # Time sits below title (accounting for wrap)
+                        time_y = title_y + 8 + (title_extra or 0)
                         handwrite(overlay, t, DAY_SCHED_X, time_y,
                                   scale=2.5, color=(180, 60, 100))
                     break
