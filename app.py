@@ -685,7 +685,8 @@ def api_chat():
         return jsonify({"error": "No API key configured"}), 500
 
     import urllib.request as ur
-    body = json.dumps({
+    import json as json_mod
+    body = json_mod.dumps({
         "model": "claude-sonnet-4-20250514",
         "max_tokens": 300,
         "system": "You are a helpful assistant writing on a reMarkable tablet. Keep responses under 3 sentences. Use only basic ASCII characters - no special symbols, no markdown, no bullet points.",
@@ -699,7 +700,7 @@ def api_chat():
         })
     try:
         with ur.urlopen(req, timeout=30) as r:
-            resp = json.loads(r.read())
+            resp = json_mod.loads(r.read())
         content = resp.get("content", [])
         if isinstance(content, list):
             text = " ".join(c.get("text", "") for c in content if c.get("type") == "text")
