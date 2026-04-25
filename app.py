@@ -81,6 +81,7 @@ def require_login():
         "planner_dashboard",
         "planner_create_token",
         "planner_seed_token",
+        "api_chat",
         "planner_setup_script",
     )
     if request.endpoint in open_endpoints:
@@ -666,6 +667,47 @@ from hyperpaper_gen import generate_hyperpaper, events_hash as hp_events_hash
 # Cache: {device_token: {"hash": str, "pdf": bytes}}
 _planner_cache = {}
 _hyperpaper_cache = {}
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """Proxy chat to Anthropic Claude."""
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    if not data or not data.get("prompt"):
+        return jsonify({"error": "prompt required"}), 400
+
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        return jsonify({"error": "No API key configured"}), 500
+
+    import urllib.request as ur
+    body = json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 300,
+        "system": "You are a helpful assistant writing on a reMarkable tablet. Keep responses under 3 sentences. Use only basic ASCII characters - no special symbols, no markdown, no bullet points.",
+        "messages": [{"role": "user", "content": data["prompt"]}],
+    }).encode()
+    req = ur.Request("https://api.anthropic.com/v1/messages",
+        data=body, headers={
+            "Content-Type": "application/json",
+            "x-api-key": anthropic_key,
+            "anthropic-version": "2023-06-01",
+        })
+    try:
+        with ur.urlopen(req, timeout=30) as r:
+            resp = json.loads(r.read())
+        content = resp.get("content", [])
+        if isinstance(content, list):
+            text = " ".join(c.get("text", "") for c in content if c.get("type") == "text")
+        else:
+            text = str(content)
+        return jsonify({"response": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/hyperpaper/pdf")
