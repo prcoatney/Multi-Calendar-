@@ -198,7 +198,7 @@ def generate_hyperpaper(events, year=2026):
                         handwrite(overlay, title, DAY_SCHED_X, title_y,
                                   scale=4.5, max_width=DAY_SCHED_W)
                         handwrite(overlay, t, DAY_SCHED_X, time_y,
-                                  scale=2.5, color=(140, 145, 150))
+                                  scale=2.5, color=(180, 60, 100))
                     break
             else:
                 continue
