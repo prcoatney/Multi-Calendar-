@@ -709,12 +709,13 @@ def api_notes_ai():
         if not strokes:
             return jsonify({"response": "No handwriting found", "last_y": 0})
 
-        # Filter to notes area only (left panel: x < 280 in .rm coords)
-        # .rm coords: roughly -600 to 600 x, 0 to 800 y
+        # Filter to notes area only (left panel in .rm coords)
+        # Notes panel: x=-591 to 269, y=535 to 1863
         notes_strokes = []
         for pts in strokes:
             avg_x = sum(x for x, y in pts) / len(pts)
-            if avg_x < 100:  # left panel in .rm coords
+            avg_y = sum(y for x, y in pts) / len(pts)
+            if avg_x < 269 and 535 < avg_y < 1863:
                 notes_strokes.append(pts)
 
         if not notes_strokes:
