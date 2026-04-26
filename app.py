@@ -761,12 +761,12 @@ def api_notes_ai():
 
         body = json_mod.dumps({
             "model": "claude-sonnet-4-20250514",
-            "max_tokens": 500,
+            "max_tokens": 1000,
             "messages": [{
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                    {"type": "text", "text": "Read this handwriting and respond directly to what it says. Do NOT describe what you see or explain the handwriting. Just respond as if someone said it to you in conversation. Keep it under 3 sentences. Use only basic ASCII characters."}
+                    {"type": "text", "text": "Read this handwriting and respond directly to what it says. Do NOT describe what you see or mention handwriting. Respond with substance and depth as a knowledgeable thought partner. If it is a theological or academic topic, engage at a seminary level. 4-6 sentences. Use only basic ASCII characters."}
                 ]
             }]
         }).encode()
