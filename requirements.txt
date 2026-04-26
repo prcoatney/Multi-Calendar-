@@ -10,3 +10,5 @@ gunicorn==23.0.0
 fpdf2
 PyPDF2
 pikepdf
+rmscene
+Pillow

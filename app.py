@@ -82,6 +82,7 @@ def require_login():
         "planner_create_token",
         "planner_seed_token",
         "api_chat",
+        "api_notes_ai",
         "planner_setup_script",
     )
     if request.endpoint in open_endpoints:
@@ -667,6 +668,125 @@ from hyperpaper_gen import generate_hyperpaper, events_hash as hp_events_hash
 # Cache: {device_token: {"hash": str, "pdf": bytes}}
 _planner_cache = {}
 _hyperpaper_cache = {}
+
+
+@app.route("/api/notes-ai", methods=["POST"])
+def api_notes_ai():
+    """Receive .rm file, OCR the notes area, send to Claude for analysis."""
+    api_key = os.environ.get("CALENDAR_API_KEY", "")
+    if api_key and request.args.get("key") != api_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    if not data or not data.get("rm_data"):
+        return jsonify({"error": "rm_data required"}), 400
+
+    import base64
+    import io as io_mod
+
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        return jsonify({"error": "No API key"}), 500
+
+    try:
+        # Decode .rm file
+        rm_bytes = base64.b64decode(data["rm_data"])
+
+        # Read strokes with rmscene
+        from rmscene import read_blocks
+        blocks = list(read_blocks(io_mod.BytesIO(rm_bytes)))
+
+        strokes = []
+        all_ys = []
+        for b in blocks:
+            if type(b).__name__ == "SceneLineItemBlock":
+                val = b.item.value
+                if val and hasattr(val, "points") and val.points:
+                    pts = [(p.x, p.y) for p in val.points]
+                    strokes.append(pts)
+                    all_ys.extend([p.y for p in val.points])
+
+        if not strokes:
+            return jsonify({"response": "No handwriting found", "last_y": 0})
+
+        # Filter to notes area only (left panel: x < 280 in .rm coords)
+        # .rm coords: roughly -600 to 600 x, 0 to 800 y
+        notes_strokes = []
+        for pts in strokes:
+            avg_x = sum(x for x, y in pts) / len(pts)
+            if avg_x < 100:  # left panel in .rm coords
+                notes_strokes.append(pts)
+
+        if not notes_strokes:
+            notes_strokes = strokes  # fallback to all strokes
+
+        # Render to image
+        from PIL import Image, ImageDraw
+        img_w, img_h = 1200, 1600
+        img = Image.new("L", (img_w, img_h), 255)
+        draw = ImageDraw.Draw(img)
+
+        # Find bounds for normalization
+        all_x = [x for pts in notes_strokes for x, y in pts]
+        all_y = [y for pts in notes_strokes for x, y in pts]
+        min_x, max_x = min(all_x), max(all_x)
+        min_y, max_y = min(all_y), max(all_y)
+        range_x = max(max_x - min_x, 1)
+        range_y = max(max_y - min_y, 1)
+
+        for pts in notes_strokes:
+            scaled = []
+            for x, y in pts:
+                sx = int((x - min_x) / range_x * (img_w - 100) + 50)
+                sy = int((y - min_y) / range_y * (img_h - 100) + 50)
+                scaled.append((sx, sy))
+            if len(scaled) >= 2:
+                draw.line(scaled, fill=0, width=3)
+
+        # Save to buffer
+        img_buf = io_mod.BytesIO()
+        img.save(img_buf, format="PNG")
+        img_b64 = base64.b64encode(img_buf.getvalue()).decode()
+
+        # OCR + Analysis with Claude
+        import urllib.request as ur
+        import json as json_mod
+
+        body = json_mod.dumps({
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 500,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                    {"type": "text", "text": "This is handwritten text from a notes page. First, read the handwriting carefully. Then, based on what you read, provide the most useful response - if it is a question answer it, if it is notes summarize or expand on them, if it is a to-do list prioritize it, if it is brainstorming add ideas. Keep your response under 4 sentences. Use only basic ASCII characters."}
+                ]
+            }]
+        }).encode()
+
+        req = ur.Request("https://api.anthropic.com/v1/messages",
+            data=body, headers={
+                "Content-Type": "application/json",
+                "x-api-key": anthropic_key,
+                "anthropic-version": "2023-06-01",
+            })
+
+        with ur.urlopen(req, timeout=45) as r:
+            resp = json_mod.loads(r.read())
+
+        content = resp.get("content", [])
+        if isinstance(content, list):
+            text = " ".join(c.get("text", "") for c in content if c.get("type") == "text")
+        else:
+            text = str(content)
+
+        # Calculate last_y in injection coords for positioning
+        last_y = int(max(all_ys)) if all_ys else 0
+
+        return jsonify({"response": text, "last_y": last_y})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/chat", methods=["POST"])
