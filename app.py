@@ -766,7 +766,7 @@ def api_notes_ai():
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                    {"type": "text", "text": "This is handwritten text from a notes page. First, read the handwriting carefully. Then, based on what you read, provide the most useful response - if it is a question answer it, if it is notes summarize or expand on them, if it is a to-do list prioritize it, if it is brainstorming add ideas. Keep your response under 4 sentences. Use only basic ASCII characters."}
+                    {"type": "text", "text": "Read this handwriting and respond directly to what it says. Do NOT describe what you see or explain the handwriting. Just respond as if someone said it to you in conversation. Keep it under 3 sentences. Use only basic ASCII characters."}
                 ]
             }]
         }).encode()
