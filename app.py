@@ -721,13 +721,9 @@ def api_notes_ai():
         if not notes_strokes:
             notes_strokes = strokes  # fallback to all strokes
 
-        # Render to image
+        # Render to image — large, high contrast, preserve aspect ratio
         from PIL import Image, ImageDraw
-        img_w, img_h = 1200, 1600
-        img = Image.new("L", (img_w, img_h), 255)
-        draw = ImageDraw.Draw(img)
 
-        # Find bounds for normalization
         all_x = [x for pts in notes_strokes for x, y in pts]
         all_y = [y for pts in notes_strokes for x, y in pts]
         min_x, max_x = min(all_x), max(all_x)
@@ -735,14 +731,24 @@ def api_notes_ai():
         range_x = max(max_x - min_x, 1)
         range_y = max(max_y - min_y, 1)
 
+        # Scale to fill a large image with proper aspect ratio
+        scale = min(2400 / range_x, 3200 / range_y, 8.0)
+        img_w = int(range_x * scale) + 200
+        img_h = int(range_y * scale) + 200
+        img_w = max(img_w, 800)
+        img_h = max(img_h, 400)
+
+        img = Image.new("L", (img_w, img_h), 255)
+        draw = ImageDraw.Draw(img)
+
         for pts in notes_strokes:
             scaled = []
             for x, y in pts:
-                sx = int((x - min_x) / range_x * (img_w - 100) + 50)
-                sy = int((y - min_y) / range_y * (img_h - 100) + 50)
+                sx = int((x - min_x) * scale + 100)
+                sy = int((y - min_y) * scale + 100)
                 scaled.append((sx, sy))
             if len(scaled) >= 2:
-                draw.line(scaled, fill=0, width=3)
+                draw.line(scaled, fill=0, width=max(3, int(scale * 0.5)))
 
         # Save to buffer
         img_buf = io_mod.BytesIO()
