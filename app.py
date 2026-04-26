@@ -787,8 +787,9 @@ def api_notes_ai():
         else:
             text = str(content)
 
-        # Calculate last_y in injection coords for positioning
-        last_y = int(max(all_ys)) if all_ys else 0
+        # Calculate last_y from notes strokes only (not all strokes)
+        notes_ys = [y for pts in notes_strokes for x, y in pts]
+        last_y = int(max(notes_ys)) if notes_ys else 0
 
         return jsonify({"response": text, "last_y": last_y})
 
