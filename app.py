@@ -858,6 +858,7 @@ def hyperpaper_pdf():
     # Fetch full year events
     year = 2026
     events = {}
+    auth_failed = False
     for m in range(1, 13):
         start = date(year, m, 1)
         end = date(year, m + 1, 1) if m < 12 else date(year + 1, 1, 1)
@@ -865,7 +866,10 @@ def hyperpaper_pdf():
             raw = list_events(org_slug, member_id,
                              start.isoformat() + "T00:00:00Z",
                              end.isoformat() + "T00:00:00Z", 500)
-        except:
+        except Exception as e:
+            if "invalid_grant" in str(e) or "RefreshError" in type(e).__name__:
+                auth_failed = True
+                break
             continue
         for ev in raw:
             s = ev.get("start", "")
@@ -896,6 +900,10 @@ def hyperpaper_pdf():
             filtered.append((t, title))
         events[k] = filtered
     events = {k: v for k, v in events.items() if v}
+
+    if auth_failed:
+        today = datetime.utcnow().date()
+        events[(today.year, today.month, today.day)] = [("9a", "[!] Check google token")]
 
     h = hp_events_hash(events)
 
@@ -945,12 +953,17 @@ def planner_pdf():
     week_end = week_start + timedelta(days=8)
 
     # Fetch events
+    auth_failed = False
+    raw_events = []
     try:
         raw_events = list_events(org_slug, member_id,
                                  week_start.isoformat() + "T00:00:00Z",
                                  week_end.isoformat() + "T00:00:00Z", 100)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if "invalid_grant" in str(e) or "RefreshError" in type(e).__name__:
+            auth_failed = True
+        else:
+            return jsonify({"error": str(e)}), 500
 
     # Convert to planner format
     events = {}
@@ -973,6 +986,10 @@ def planner_pdf():
     for k in events:
         events[k].sort()
         events[k] = [(t, title) for _, t, title in events[k]]
+
+    if auth_failed:
+        today = datetime.utcnow().date()
+        events[(today.year, today.month, today.day)] = [("9a", "[!] Check google token")]
 
     h = planner_events_hash(events)
 
