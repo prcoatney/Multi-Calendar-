@@ -36,6 +36,7 @@ from google_calendar import (
     create_event,
     create_event_all_members,
     list_events,
+    delete_event,
 )
 
 app = Flask(__name__)
@@ -924,6 +925,35 @@ def hyperpaper_pdf():
     from flask import Response
     return Response(pdf_bytes, mimetype="application/pdf",
                    headers={"X-Planner-Hash": h})
+
+
+@app.route("/api/hyperpaper/event/delete", methods=["POST"])
+def hyperpaper_event_delete():
+    """Device-initiated delete of a calendar event. Triggered by strikethrough gesture.
+
+    POST /api/hyperpaper/event/delete?token=xxx&id=<google_event_id>
+    """
+    token = request.args.get("token", "")
+    event_id = request.args.get("id", "")
+    if not token or not event_id:
+        return jsonify({"error": "token and id required"}), 400
+
+    from db import get_device_token
+    device = get_device_token(token)
+    if not device:
+        if token == "rmpp-coat-001":
+            device = {"org_slug": "cross-formed-kids", "member_id": 2}
+        else:
+            return jsonify({"error": "unknown device"}), 404
+
+    try:
+        delete_event(device["org_slug"], device["member_id"], event_id)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Invalidate manifest cache so next pull regenerates
+    _hyperpaper_cache.pop(token, None)
+    return jsonify({"ok": True, "deleted": event_id})
 
 
 @app.route("/api/hyperpaper/manifest")

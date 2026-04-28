@@ -237,6 +237,23 @@ def create_event(
     return event
 
 
+def delete_event(
+    org_slug: str,
+    member_id: int,
+    event_id: str,
+    calendar_id: str = "primary",
+    send_updates: str = "none",
+) -> None:
+    """Delete a calendar event by ID. For recurring instances, deletes that instance only."""
+    creds = get_credentials(org_slug, member_id)
+    if not creds:
+        raise ValueError(f"Member {member_id} in '{org_slug}' has not authorized Google Calendar access.")
+    service = build("calendar", "v3", credentials=creds)
+    service.events().delete(
+        calendarId=calendar_id, eventId=event_id, sendUpdates=send_updates
+    ).execute()
+
+
 def create_event_all_members(
     org_slug: str,
     member_ids: list[int],
