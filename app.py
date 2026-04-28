@@ -669,6 +669,12 @@ from hyperpaper_gen import generate_hyperpaper, events_hash as hp_events_hash
 # Cache: {device_token: {"hash": str, "pdf": bytes}}
 _planner_cache = {}
 _hyperpaper_cache = {}
+# Hyperpaper page UUID → page index mapping, uploaded once by device
+# Survives PDF regen. Shape: {token: {"uuid_to_idx": {<uuid>: <int>}, "uploaded": <ts>}}
+_hyperpaper_content_cache = {}
+# De-dup: track stroke count last seen per (token, page_uuid) so we only
+# evaluate freshly-added strokes. Shape: {(token, page_uuid): int}
+_hyperpaper_strike_state = {}
 
 
 @app.route("/api/notes-ai", methods=["POST"])
@@ -925,6 +931,145 @@ def hyperpaper_pdf():
     from flask import Response
     return Response(pdf_bytes, mimetype="application/pdf",
                    headers={"X-Planner-Hash": h})
+
+
+@app.route("/api/hyperpaper/content", methods=["POST"])
+def hyperpaper_content_upload():
+    """Device uploads its Hyperpaper .content file once (and on subsequent changes)
+    so the server can resolve page UUIDs to PDF page indices without re-shipping
+    .content with every strike upload.
+
+    POST body = raw .content JSON bytes
+    Query: ?token=xxx
+    """
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+    try:
+        content = json.loads(request.get_data())
+    except Exception as e:
+        return jsonify({"error": f"invalid JSON: {e}"}), 400
+    pages = content.get("cPages", {}).get("pages") or content.get("pages") or []
+    uuid_to_idx = {}
+    for i, p in enumerate(pages):
+        pid = p.get("id") if isinstance(p, dict) else p
+        if pid:
+            uuid_to_idx[pid] = i
+    _hyperpaper_content_cache[token] = {
+        "uuid_to_idx": uuid_to_idx,
+        "uploaded": datetime.utcnow().isoformat(),
+    }
+    return jsonify({"ok": True, "pages": len(uuid_to_idx)})
+
+
+@app.route("/api/hyperpaper/strike", methods=["POST"])
+def hyperpaper_strike():
+    """Device uploads a modified .rm file. Server detects snap-strike strokes,
+    matches against current manifest bboxes, fires deletes.
+
+    Query: ?token=xxx&page_uuid=<uuid>
+    Body: raw .rm bytes
+    Returns: {"checked": N, "matched": [...], "deleted": [...], "errors": [...]}
+    """
+    token = request.args.get("token", "")
+    page_uuid = request.args.get("page_uuid", "")
+    if not token or not page_uuid:
+        return jsonify({"error": "token and page_uuid required"}), 400
+
+    rm_bytes = request.get_data()
+    if not rm_bytes:
+        return jsonify({"error": "empty body"}), 400
+
+    content_cache = _hyperpaper_content_cache.get(token)
+    if not content_cache:
+        return jsonify({"error": "no .content cached — POST /api/hyperpaper/content first"}), 404
+    page_idx = content_cache["uuid_to_idx"].get(page_uuid)
+    if page_idx is None:
+        return jsonify({"error": f"unknown page_uuid {page_uuid}"}), 404
+
+    cached = _hyperpaper_cache.get(token)
+    if not cached or "manifest" not in cached:
+        return jsonify({"error": "no manifest — fetch /api/hyperpaper/pdf first"}), 404
+    manifest = cached["manifest"]
+    page_events = manifest.get("pages", {}).get(str(page_idx), [])
+
+    # Parse strokes
+    from rmscene import read_blocks
+    from rmscene.scene_stream import SceneLineItemBlock
+    import io as _io
+    strokes = []
+    try:
+        for blk in read_blocks(_io.BytesIO(rm_bytes)):
+            if isinstance(blk, SceneLineItemBlock) and blk.item.value is not None:
+                pts = blk.item.value.points
+                if pts:
+                    strokes.append(pts)
+    except Exception as e:
+        return jsonify({"error": f"rmscene parse failed: {e}"}), 500
+
+    # Only check strokes added since last upload
+    state_key = f"{token}::{page_uuid}"
+    last_seen = _hyperpaper_strike_state.get(state_key, 0)
+    new_strokes = strokes[last_seen:]
+    _hyperpaper_strike_state[state_key] = len(strokes)
+
+    # Snap-strike detection: residual ≤ 0.5, length > 50
+    SCALE = 0.322
+    PDF_W_HALF = 226.0
+    matched = []
+    deleted = []
+    errors = []
+    for pts in new_strokes:
+        if len(pts) < 2:
+            continue
+        xs = [p.x for p in pts]; ys = [p.y for p in pts]; n = len(pts)
+        mx, my = sum(xs)/n, sum(ys)/n
+        sxx = sum((x-mx)**2 for x in xs); syy = sum((y-my)**2 for y in ys)
+        sxy = sum((xs[i]-mx)*(ys[i]-my) for i in range(n))
+        if sxx >= syy and sxx:
+            a = sxy/sxx; b = my - a*mx
+            r = [a*xs[i]+b-ys[i] for i in range(n)]
+        elif syy:
+            a = sxy/syy; b = mx - a*my
+            r = [a*ys[i]+b-xs[i] for i in range(n)]
+        else:
+            continue
+        rms = (sum(x*x for x in r)/n) ** 0.5
+        length = ((xs[-1]-xs[0])**2 + (ys[-1]-ys[0])**2) ** 0.5
+        if rms > 0.5 or length <= 50:
+            continue
+        # Convert midpoint to PDF coords
+        mid_rm_x = (pts[0].x + pts[-1].x) / 2
+        mid_rm_y = (pts[0].y + pts[-1].y) / 2
+        pdf_x = mid_rm_x * SCALE + PDF_W_HALF
+        pdf_y = mid_rm_y * SCALE
+        for ev in page_events:
+            x, y, w, h = ev["bbox"]
+            if x <= pdf_x <= x+w and y <= pdf_y <= y+h:
+                matched.append({"id": ev["id"], "title": ev["title"]})
+                # Resolve org/member from token, fire delete
+                from db import get_device_token
+                device = get_device_token(token)
+                if not device and token == "rmpp-coat-001":
+                    device = {"org_slug": "cross-formed-kids", "member_id": 2}
+                if not device:
+                    errors.append(f"unknown token {token}")
+                    break
+                try:
+                    delete_event(device["org_slug"], device["member_id"], ev["id"])
+                    deleted.append(ev["id"])
+                    _hyperpaper_cache.pop(token, None)  # invalidate so next /pdf regens
+                except Exception as e:
+                    errors.append(f"{ev['id']}: {e}")
+                break
+    return jsonify({
+        "page_idx": page_idx,
+        "total_strokes": len(strokes),
+        "new_strokes_checked": len(new_strokes),
+        "matched": matched,
+        "deleted": deleted,
+        "errors": errors,
+    })
 
 
 @app.route("/api/hyperpaper/event/delete", methods=["POST"])
