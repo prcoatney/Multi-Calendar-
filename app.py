@@ -885,7 +885,8 @@ def hyperpaper_pdf():
                 title = ev.get("summary", "")
                 title = title.replace("\u2018","'").replace("\u2019","'").replace("\u201c",'"').replace("\u201d",'"')
                 title = ''.join(c if ord(c) < 256 else '?' for c in title)
-                events.setdefault((d.year, d.month, d.day), []).append((sort_key, t, title))
+                ev_id = ev.get("id", "")
+                events.setdefault((d.year, d.month, d.day), []).append((sort_key, t, title, ev_id))
             except: continue
 
     # Sort, filter, strip sort key
@@ -893,17 +894,17 @@ def hyperpaper_pdf():
     for k in events:
         events[k].sort()
         filtered = []
-        for _, t, title in events[k]:
+        for _, t, title, ev_id in events[k]:
             tl = title.strip().lower()
             if tl in SKIP_WORDS: continue
             if any(s in tl for s in SKIP_CONTAINS): continue
-            filtered.append((t, title))
+            filtered.append((t, title, ev_id))
         events[k] = filtered
     events = {k: v for k, v in events.items() if v}
 
     if auth_failed:
         today = datetime.utcnow().date()
-        events[(today.year, today.month, today.day)] = [("9a", "[!] Check google token")]
+        events[(today.year, today.month, today.day)] = [("9a", "[!] Check google token", "")]
 
     h = hp_events_hash(events)
 
@@ -916,12 +917,29 @@ def hyperpaper_pdf():
         return Response(cached["pdf"], mimetype="application/pdf",
                        headers={"X-Planner-Hash": h})
 
-    pdf_bytes = generate_hyperpaper(events)
-    _hyperpaper_cache[token] = {"hash": h, "pdf": pdf_bytes}
+    pdf_bytes, manifest = generate_hyperpaper(events)
+    manifest["hash"] = h
+    _hyperpaper_cache[token] = {"hash": h, "pdf": pdf_bytes, "manifest": manifest}
 
     from flask import Response
     return Response(pdf_bytes, mimetype="application/pdf",
                    headers={"X-Planner-Hash": h})
+
+
+@app.route("/api/hyperpaper/manifest")
+def hyperpaper_manifest():
+    """Device pulls the event-bbox manifest matching the current PDF.
+
+    Returns {"page_w", "page_h", "hash", "pages": {"<page>": [{id, title, time, bbox}, ...]}}
+    Listener uses this to resolve a strikethrough gesture's coordinates to a calendar event ID.
+    """
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+    cached = _hyperpaper_cache.get(token)
+    if not cached or "manifest" not in cached:
+        return jsonify({"error": "no manifest yet — fetch /api/hyperpaper/pdf first"}), 404
+    return jsonify(cached["manifest"])
 
 
 @app.route("/api/planner/pdf")

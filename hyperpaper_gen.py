@@ -102,13 +102,21 @@ def week_page(week_num):
 
 
 def generate_hyperpaper(events, year=2026):
-    """Generate merged Hyperpaper PDF with calendar overlay. Returns bytes."""
+    """Generate merged Hyperpaper PDF with calendar overlay.
+
+    Returns (pdf_bytes, manifest) where manifest is:
+      {"page_w": 452.0, "page_h": 602.0,
+       "pages": {"<page_idx>": [{"id":..., "title":..., "time":..., "bbox":[x,y,w,h]}, ...]}}
+    bbox coordinates are in fpdf top-left origin (matches PDF render coords).
+    Only day-page event positions are recorded — that's where strikethrough deletes happen.
+    """
     # Count pages from base PDF
     tmp_base = pikepdf.open(BASE_PDF)
     num_pages = len(tmp_base.pages)
     tmp_base.close()
 
     overlay = FPDF(orientation='P', unit='pt', format=(HP_W, HP_H))
+    manifest = {"page_w": HP_W, "page_h": HP_H, "pages": {}}
 
     for page_idx in range(num_pages):
         overlay.add_page()
@@ -129,7 +137,7 @@ def generate_hyperpaper(events, year=2026):
                         row_top_y = MONTH_GRID_TOP - wi * row_h
                         cell_x = MONTH_COL_X[di] + 4
                         ey = pdf_y_to_fpdf_y(row_top_y) + 14
-                        for t, title in evts[:3]:
+                        for t, title, _ev_id in evts[:3]:
                             extra = handwrite(overlay, "%s %s" % (t, title),
                                             cell_x, ey, scale=3.3, max_width=48)
                             ey += 18 + (extra or 0)
@@ -151,7 +159,7 @@ def generate_hyperpaper(events, year=2026):
                     else:
                         col_x = WEEK_COL_X[dow - 4]
                         base_y = WEEK_BOT_Y_START
-                    for t, title in evts:
+                    for t, title, _ev_id in evts:
                         try:
                             t_clean = t.strip().lower()
                             pm = 'p' in t_clean
@@ -178,7 +186,7 @@ def generate_hyperpaper(events, year=2026):
                     continue
                 if page_idx == day_page(m, d):
                     evts = events.get((year, m, d), [])
-                    for t, title in evts:
+                    for t, title, ev_id in evts:
                         try:
                             t_clean = t.strip().lower()
                             pm = 'p' in t_clean
@@ -201,6 +209,15 @@ def generate_hyperpaper(events, year=2026):
                         time_y = title_y + 8 + (title_extra or 0)
                         handwrite(overlay, t, DAY_SCHED_X, time_y,
                                   scale=2.5, color=(180, 60, 100))
+                        # Manifest bbox: covers title + time, in fpdf coords (top-left origin)
+                        bbox_h = (time_y + 4) - title_y
+                        if ev_id:
+                            manifest["pages"].setdefault(str(page_idx), []).append({
+                                "id": ev_id,
+                                "title": title,
+                                "time": t,
+                                "bbox": [DAY_SCHED_X, title_y, DAY_SCHED_W, bbox_h],
+                            })
                     break
             else:
                 continue
@@ -235,7 +252,7 @@ def generate_hyperpaper(events, year=2026):
     base.save(buf)
     ovl.close()
     base.close()
-    return buf.getvalue()
+    return buf.getvalue(), manifest
 
 
 def events_hash(events):
