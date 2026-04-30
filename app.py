@@ -1153,6 +1153,18 @@ def hyperpaper_heartbeat():
     return jsonify({"ok": True})
 
 
+def _utc_to_central(iso_str):
+    """Convert ISO UTC timestamp (with Z suffix) to friendly Central-time string."""
+    if not iso_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_str.rstrip("Z")).replace(tzinfo=pytz.UTC)
+        ct = dt.astimezone(pytz.timezone("US/Central"))
+        return ct.strftime("%-I:%M:%S %p %b %-d (%Z)")
+    except Exception:
+        return iso_str
+
+
 @app.route("/api/hyperpaper/health")
 def hyperpaper_health():
     """Read-only status. Hit this to see if the watcher is alive without SSH.
@@ -1165,7 +1177,6 @@ def hyperpaper_health():
     activity = _hyperpaper_activity.get(token, {})
     has_content = token in _hyperpaper_content_cache
     has_manifest = token in _hyperpaper_cache and "manifest" in _hyperpaper_cache[token]
-    # Heartbeat freshness in seconds
     fresh_seconds = None
     if activity.get("last_heartbeat"):
         try:
@@ -1173,13 +1184,28 @@ def hyperpaper_health():
             fresh_seconds = int((datetime.utcnow() - last).total_seconds())
         except Exception:
             pass
+    activity_local = {
+        k: _utc_to_central(v) if k.startswith("last_") and k != "last_action" else v
+        for k, v in activity.items()
+    }
     return jsonify({
         "token": token,
         "activity": activity,
+        "activity_local": activity_local,
         "heartbeat_age_seconds": fresh_seconds,
         "content_cached": has_content,
         "manifest_cached": has_manifest,
     })
+
+
+@app.route("/hyperpaper/status")
+def hyperpaper_status_dashboard():
+    """CFK-branded dashboard for the strike-watcher pipeline.
+
+    GET /hyperpaper/status?token=rmpp-coat-001
+    """
+    token = request.args.get("token", "rmpp-coat-001")
+    return render_template("hyperpaper_status.html", token=token)
 
 
 @app.route("/api/hyperpaper/event/delete", methods=["POST"])

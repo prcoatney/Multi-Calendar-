@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hyperpaper Pipeline — CFK</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #FAFAFA;
+    color: #0A0A0A;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .gradient-bar {
+    height: 5px;
+    background: linear-gradient(90deg, #0B1F3A 0%, #00C2D1 50%, #E91E63 100%);
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 24px 64px;
+  }
+  header {
+    margin-bottom: 32px;
+  }
+  .eyebrow {
+    color: #00C2D1;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  .sub {
+    color: #6B7280;
+    font-size: 14px;
+  }
+  .pulse-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    background: white;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    margin-bottom: 20px;
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #9CA3AF;
+    flex-shrink: 0;
+  }
+  .dot.green { background: #10B981; box-shadow: 0 0 0 4px rgba(16,185,129,0.15); animation: pulse 2.5s infinite; }
+  .dot.yellow { background: #F59E0B; box-shadow: 0 0 0 4px rgba(245,158,11,0.15); }
+  .dot.red { background: #EF4444; box-shadow: 0 0 0 4px rgba(239,68,68,0.18); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(16,185,129,0.15); }
+    50% { box-shadow: 0 0 0 8px rgba(16,185,129,0.0); }
+  }
+  .pulse-label { font-weight: 600; font-size: 15px; }
+  .pulse-detail { color: #6B7280; font-size: 13px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: white;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6B7280;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: #0A0A0A;
+  }
+  .stat-value.dim { color: #9CA3AF; font-weight: 400; font-style: italic; }
+  .checkrow {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #F3F4F6;
+    color: #6B7280;
+  }
+  .pill.on { background: #ECFDF5; color: #065F46; }
+  .pill.off { background: #FEF2F2; color: #991B1B; }
+  .pill::before {
+    content: "•";
+    font-size: 18px;
+    line-height: 0;
+  }
+  .last-action {
+    background: white;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .last-action .stat-label { margin-bottom: 8px; }
+  .last-action-text {
+    font-family: "SF Mono", "Menlo", monospace;
+    font-size: 13px;
+    color: #0B1F3A;
+    background: #F3F4F6;
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  footer {
+    text-align: center;
+    margin-top: 40px;
+    color: #9CA3AF;
+    font-size: 12px;
+  }
+  footer a { color: #00C2D1; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="gradient-bar"></div>
+<div class="container">
+  <header>
+    <div class="eyebrow">Cross Formed Kids</div>
+    <h1>Hyperpaper Pipeline</h1>
+    <p class="sub">Snap-strike → Google Calendar delete · live status</p>
+  </header>
+
+  <div class="pulse-row">
+    <div class="dot" id="pulse-dot"></div>
+    <div>
+      <div class="pulse-label" id="pulse-label">Loading…</div>
+      <div class="pulse-detail" id="pulse-detail">Pinging server</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="stat">
+      <div class="stat-label">Last Heartbeat</div>
+      <div class="stat-value" id="last-hb">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last Strike</div>
+      <div class="stat-value" id="last-strike">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last PDF Pull</div>
+      <div class="stat-value" id="last-pdf">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last Content Upload</div>
+      <div class="stat-value" id="last-content">—</div>
+    </div>
+  </div>
+
+  <div class="checkrow">
+    <span class="pill" id="content-pill">Content cache</span>
+    <span class="pill" id="manifest-pill">Manifest cache</span>
+  </div>
+
+  <div class="last-action">
+    <div class="stat-label">Last Action</div>
+    <div class="last-action-text" id="last-action">—</div>
+  </div>
+
+  <footer>
+    Auto-refreshing every 10 seconds · Token <code>{{ token }}</code><br>
+    <a href="/api/hyperpaper/health?token={{ token }}">Raw JSON</a>
+  </footer>
+</div>
+
+<script>
+const TOKEN = "{{ token }}";
+const $ = id => document.getElementById(id);
+
+function statusFromAge(ageSec) {
+  if (ageSec === null || ageSec === undefined) return ["red", "Never seen", "Watcher hasn't checked in yet"];
+  if (ageSec < 90) return ["green", "Live", `Watcher checked in ${ageSec}s ago`];
+  if (ageSec < 300) return ["yellow", "Slow", `Last check-in ${ageSec}s ago — should be ≤ 90s`];
+  return ["red", "Stuck", `No check-in for ${ageSec}s — pipeline likely broken`];
+}
+
+async function refresh() {
+  try {
+    const r = await fetch(`/api/hyperpaper/health?token=${TOKEN}`);
+    const d = await r.json();
+    const local = d.activity_local || {};
+    const setVal = (id, key) => {
+      const v = local[key];
+      const el = $(id);
+      el.textContent = v || "never";
+      el.classList.toggle("dim", !v);
+    };
+    setVal("last-hb", "last_heartbeat");
+    setVal("last-strike", "last_strike");
+    setVal("last-pdf", "last_pdf_pull");
+    setVal("last-content", "last_content_upload");
+    $("last-action").textContent = (d.activity && d.activity.last_action) || "(none yet)";
+
+    const cp = $("content-pill");
+    cp.textContent = (d.content_cached ? "✓" : "✗") + " Content cache";
+    cp.className = "pill " + (d.content_cached ? "on" : "off");
+    const mp = $("manifest-pill");
+    mp.textContent = (d.manifest_cached ? "✓" : "✗") + " Manifest cache";
+    mp.className = "pill " + (d.manifest_cached ? "on" : "off");
+
+    const [color, label, detail] = statusFromAge(d.heartbeat_age_seconds);
+    $("pulse-dot").className = "dot " + color;
+    $("pulse-label").textContent = label;
+    $("pulse-detail").textContent = detail;
+  } catch (e) {
+    $("pulse-dot").className = "dot red";
+    $("pulse-label").textContent = "Connection error";
+    $("pulse-detail").textContent = e.message;
+  }
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
