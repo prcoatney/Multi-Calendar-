@@ -4,6 +4,7 @@ Each organization gets its own slug-based namespace with independent
 members, calendars, availability search, and scheduling.
 """
 
+import json
 import os
 from datetime import date, datetime, timedelta
 from flask import Flask, request, jsonify, redirect, render_template, session, url_for, abort
