@@ -967,10 +967,12 @@ def hyperpaper_pdf():
     events, h = _fetch_hyperpaper_events(org_slug, member_id)
 
     if request.args.get("check"):
+        _record_activity(token, last_pdf_pull=True, last_action="pdf check (hash only)")
         return jsonify({"hash": h})
 
     cached = _hyperpaper_cache.get(token)
     if cached and cached["hash"] == h:
+        _record_activity(token, last_pdf_pull=True, last_action="pdf served from cache")
         from flask import Response
         return Response(cached["pdf"], mimetype="application/pdf",
                        headers={"X-Planner-Hash": h})
