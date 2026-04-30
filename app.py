@@ -676,6 +676,20 @@ _hyperpaper_content_cache = {}
 # De-dup: track stroke count last seen per (token, page_uuid) so we only
 # evaluate freshly-added strokes. Shape: {(token, page_uuid): int}
 _hyperpaper_strike_state = {}
+# Last-activity log per token, for the /health endpoint.
+# Shape: {token: {"last_heartbeat", "last_strike", "last_pdf_pull",
+#                 "last_content_upload", "last_action"}}
+_hyperpaper_activity = {}
+
+
+def _record_activity(token, **kwargs):
+    """Update activity log for token. Fields: last_heartbeat, last_strike, etc."""
+    a = _hyperpaper_activity.setdefault(token, {})
+    now = datetime.utcnow().isoformat() + "Z"
+    for k, v in kwargs.items():
+        a[k] = v if v is not True else now
+    if not kwargs:
+        a["last_heartbeat"] = now
 
 
 @app.route("/api/notes-ai", methods=["POST"])
@@ -847,24 +861,23 @@ def api_chat():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/hyperpaper/pdf")
-def hyperpaper_pdf():
-    """Device pulls its Hyperpaper PDF with calendar overlay."""
-    token = request.args.get("token", "")
-    if not token:
-        return jsonify({"error": "token required"}), 400
-
+def _resolve_device(token):
+    """Resolve a device token to (org_slug, member_id) or return None."""
     from db import get_device_token
     device = get_device_token(token)
-    if not device:
-        if token == "rmpp-coat-001":
-            device = {"org_slug": "cross-formed-kids", "member_id": 2}
-        else:
-            return jsonify({"error": "unknown device"}), 404
-    org_slug, member_id = device["org_slug"], device["member_id"]
+    if device:
+        return device["org_slug"], device["member_id"]
+    if token == "rmpp-coat-001":
+        return "cross-formed-kids", 2
+    return None
 
-    # Fetch full year events
-    year = 2026
+
+def _fetch_hyperpaper_events(org_slug, member_id, year=2026):
+    """Fetch + filter calendar events for a year. Returns (events_dict, hash).
+
+    Reusable by /pdf and /strike (when /strike needs to rebuild manifest cache).
+    Includes the OAuth-failure sentinel injection.
+    """
     events = {}
     auth_failed = False
     for m in range(1, 13):
@@ -881,31 +894,35 @@ def hyperpaper_pdf():
             continue
         for ev in raw:
             s = ev.get("start", "")
-            if not s or "T" not in s: continue
+            if not s or "T" not in s:
+                continue
             try:
                 d = datetime.fromisoformat(s.replace("Z", "+00:00"))
                 hr, mn = d.hour, d.minute
                 ampm = "a" if hr < 12 else "p"
                 h12 = hr if hr <= 12 else hr - 12
-                if h12 == 0: h12 = 12
+                if h12 == 0:
+                    h12 = 12
                 t = "%d:%02d%s" % (h12, mn, ampm) if mn else "%d%s" % (h12, ampm)
                 sort_key = hr * 60 + mn
                 title = ev.get("summary", "")
-                title = title.replace("\u2018","'").replace("\u2019","'").replace("\u201c",'"').replace("\u201d",'"')
+                title = title.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
                 title = ''.join(c if ord(c) < 256 else '?' for c in title)
                 ev_id = ev.get("id", "")
                 events.setdefault((d.year, d.month, d.day), []).append((sort_key, t, title, ev_id))
-            except: continue
+            except Exception:
+                continue
 
-    # Sort, filter, strip sort key
     from hyperpaper_gen import SKIP_WORDS, SKIP_CONTAINS
     for k in events:
         events[k].sort()
         filtered = []
         for _, t, title, ev_id in events[k]:
             tl = title.strip().lower()
-            if tl in SKIP_WORDS: continue
-            if any(s in tl for s in SKIP_CONTAINS): continue
+            if tl in SKIP_WORDS:
+                continue
+            if any(s in tl for s in SKIP_CONTAINS):
+                continue
             filtered.append((t, title, ev_id))
         events[k] = filtered
     events = {k: v for k, v in events.items() if v}
@@ -914,7 +931,40 @@ def hyperpaper_pdf():
         today = datetime.utcnow().date()
         events[(today.year, today.month, today.day)] = [("9a", "[!] Check google token", "")]
 
-    h = hp_events_hash(events)
+    return events, hp_events_hash(events)
+
+
+def _ensure_hyperpaper_manifest(token):
+    """Return the manifest for this token, rebuilding cache if missing.
+    Returns (manifest_dict, hash) or (None, None) if device unknown.
+    """
+    cached = _hyperpaper_cache.get(token)
+    if cached and "manifest" in cached:
+        return cached["manifest"], cached["hash"]
+    resolved = _resolve_device(token)
+    if not resolved:
+        return None, None
+    org_slug, member_id = resolved
+    events, h = _fetch_hyperpaper_events(org_slug, member_id)
+    pdf_bytes, manifest = generate_hyperpaper(events)
+    manifest["hash"] = h
+    _hyperpaper_cache[token] = {"hash": h, "pdf": pdf_bytes, "manifest": manifest}
+    return manifest, h
+
+
+@app.route("/api/hyperpaper/pdf")
+def hyperpaper_pdf():
+    """Device pulls its Hyperpaper PDF with calendar overlay."""
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+
+    resolved = _resolve_device(token)
+    if not resolved:
+        return jsonify({"error": "unknown device"}), 404
+    org_slug, member_id = resolved
+
+    events, h = _fetch_hyperpaper_events(org_slug, member_id)
 
     if request.args.get("check"):
         return jsonify({"hash": h})
@@ -928,6 +978,7 @@ def hyperpaper_pdf():
     pdf_bytes, manifest = generate_hyperpaper(events)
     manifest["hash"] = h
     _hyperpaper_cache[token] = {"hash": h, "pdf": pdf_bytes, "manifest": manifest}
+    _record_activity(token, last_pdf_pull=True, last_action="pdf regenerated")
 
     from flask import Response
     return Response(pdf_bytes, mimetype="application/pdf",
@@ -960,6 +1011,8 @@ def hyperpaper_content_upload():
         "uuid_to_idx": uuid_to_idx,
         "uploaded": datetime.utcnow().isoformat(),
     }
+    _record_activity(token, last_content_upload=True,
+                     last_action=f"content uploaded ({len(uuid_to_idx)} pages)")
     return jsonify({"ok": True, "pages": len(uuid_to_idx)})
 
 
@@ -981,17 +1034,21 @@ def hyperpaper_strike():
     if not rm_bytes:
         return jsonify({"error": "empty body"}), 400
 
+    # If .content cache missing, signal device to re-upload before retrying.
+    # 409 Conflict + needs_content marker — watcher knows to upload .content then retry.
     content_cache = _hyperpaper_content_cache.get(token)
     if not content_cache:
-        return jsonify({"error": "no .content cached — POST /api/hyperpaper/content first"}), 404
+        return jsonify({"error": "no .content cached", "needs_content": True}), 409
     page_idx = content_cache["uuid_to_idx"].get(page_uuid)
     if page_idx is None:
-        return jsonify({"error": f"unknown page_uuid {page_uuid}"}), 404
+        # page UUID unknown — device's .content may be stale relative to server's copy.
+        # Tell device to re-upload .content.
+        return jsonify({"error": f"unknown page_uuid", "needs_content": True}), 409
 
-    cached = _hyperpaper_cache.get(token)
-    if not cached or "manifest" not in cached:
-        return jsonify({"error": "no manifest — fetch /api/hyperpaper/pdf first"}), 404
-    manifest = cached["manifest"]
+    # Self-heal manifest: if cache empty (Railway redeploy), rebuild inline.
+    manifest, _h = _ensure_hyperpaper_manifest(token)
+    if not manifest:
+        return jsonify({"error": "unknown device"}), 404
     page_events = manifest.get("pages", {}).get(str(page_idx), [])
 
     # Parse strokes
@@ -1063,6 +1120,9 @@ def hyperpaper_strike():
                 except Exception as e:
                     errors.append(f"{ev['id']}: {e}")
                 break
+
+    _record_activity(token, last_strike=True,
+                     last_action=f"strike: matched={len(matched)} deleted={len(deleted)}")
     return jsonify({
         "page_idx": page_idx,
         "total_strokes": len(strokes),
@@ -1070,6 +1130,55 @@ def hyperpaper_strike():
         "matched": matched,
         "deleted": deleted,
         "errors": errors,
+    })
+
+
+@app.route("/api/hyperpaper/heartbeat", methods=["POST"])
+def hyperpaper_heartbeat():
+    """Device pings here on every watcher cycle. /health surfaces last seen.
+
+    POST /api/hyperpaper/heartbeat?token=xxx
+    Optional JSON body: {"note": "..."} appended to last_action.
+    """
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+    try:
+        note = (json.loads(request.get_data() or b"{}") or {}).get("note", "")
+    except Exception:
+        note = ""
+    _record_activity(token, last_heartbeat=True)
+    if note:
+        _record_activity(token, last_action=f"heartbeat: {note}")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/hyperpaper/health")
+def hyperpaper_health():
+    """Read-only status. Hit this to see if the watcher is alive without SSH.
+
+    GET /api/hyperpaper/health?token=xxx
+    """
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "token required"}), 400
+    activity = _hyperpaper_activity.get(token, {})
+    has_content = token in _hyperpaper_content_cache
+    has_manifest = token in _hyperpaper_cache and "manifest" in _hyperpaper_cache[token]
+    # Heartbeat freshness in seconds
+    fresh_seconds = None
+    if activity.get("last_heartbeat"):
+        try:
+            last = datetime.fromisoformat(activity["last_heartbeat"].rstrip("Z"))
+            fresh_seconds = int((datetime.utcnow() - last).total_seconds())
+        except Exception:
+            pass
+    return jsonify({
+        "token": token,
+        "activity": activity,
+        "heartbeat_age_seconds": fresh_seconds,
+        "content_cached": has_content,
+        "manifest_cached": has_manifest,
     })
 
 
