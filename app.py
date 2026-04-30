@@ -1123,8 +1123,15 @@ def hyperpaper_strike():
                     errors.append(f"{ev['id']}: {e}")
                 break
 
-    _record_activity(token, last_strike=True,
-                     last_action=f"strike: matched={len(matched)} deleted={len(deleted)}")
+    # last_strike means "patron crossed something out and we deleted it" — only update
+    # when there's a real match, not on every chatty .rm upload.
+    if matched:
+        title = matched[0]["title"]
+        _record_activity(token, last_strike=True,
+                         last_action=f"struck out: {title} (matched={len(matched)}, deleted={len(deleted)})")
+    else:
+        _record_activity(token,
+                         last_action=f"check: {len(new_strokes)} new strokes, no match")
     return jsonify({
         "page_idx": page_idx,
         "total_strokes": len(strokes),
