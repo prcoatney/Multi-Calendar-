@@ -171,7 +171,7 @@ def claude_ocr_event(png_bytes: bytes) -> dict | None:
 
     img_b64 = base64.b64encode(png_bytes).decode()
     body = json.dumps({
-        "model": "claude-sonnet-4-6-20250929",
+        "model": "claude-sonnet-4-6",
         "max_tokens": 200,
         "messages": [{
             "role": "user",
