@@ -571,11 +571,19 @@ def render_planner(events: list, planner_pdf_path: str, year: int = 2026, use_ab
     return rendered_days, rendered_events
 
 
-def pull_bundle(local_dir: str):
+def pull_bundle(local_dir: str, doc_path: str = PLANNER_PATH):
     os.makedirs(local_dir, exist_ok=True)
     subprocess.run([RMAPI, "refresh"], check=True, capture_output=True)
-    subprocess.run([RMAPI, "get", PLANNER_PATH], cwd=local_dir, check=True, capture_output=True)
-    rmdoc = os.path.join(local_dir, "planner-2026.2.6.4-prcoatney@gmail.com.rmdoc")
+    subprocess.run([RMAPI, "get", doc_path], cwd=local_dir, check=True, capture_output=True)
+    # rmapi names the .rmdoc after the doc's basename
+    base = doc_path.rstrip("/").split("/")[-1]
+    rmdoc = os.path.join(local_dir, base + ".rmdoc")
+    if not os.path.exists(rmdoc):
+        # rmapi might add trailing slashes / handle special chars; find any .rmdoc
+        candidates = [f for f in os.listdir(local_dir) if f.endswith(".rmdoc")]
+        if not candidates:
+            raise FileNotFoundError(f"No .rmdoc downloaded for {doc_path}")
+        rmdoc = os.path.join(local_dir, candidates[0])
     bundle_dir = os.path.join(local_dir, "bundle")
     if os.path.exists(bundle_dir):
         shutil.rmtree(bundle_dir)
@@ -584,7 +592,7 @@ def pull_bundle(local_dir: str):
     return rmdoc, bundle_dir
 
 
-def push_bundle(bundle_dir: str, out_rmdoc: str):
+def push_bundle(bundle_dir: str, out_rmdoc: str, dest_dir: str = "/MOVE/"):
     if os.path.exists(out_rmdoc):
         os.remove(out_rmdoc)
     cwd_save = os.getcwd()
@@ -593,7 +601,7 @@ def push_bundle(bundle_dir: str, out_rmdoc: str):
         subprocess.run(["zip", "-q", "-r", out_rmdoc, "."], check=True)
     finally:
         os.chdir(cwd_save)
-    subprocess.run([RMAPI, "put", "--force", out_rmdoc, "/MOVE/"], check=True, capture_output=True)
+    subprocess.run([RMAPI, "put", "--force", out_rmdoc, dest_dir], check=True, capture_output=True)
 
 
 def main():

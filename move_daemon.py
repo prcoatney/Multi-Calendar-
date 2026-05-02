@@ -43,25 +43,22 @@ from PIL import Image, ImageDraw
 
 # Re-use config + helpers from move_render
 from move_render import (
-    RMAPI, PLANNER_PATH, HERE, BASELINE_PDF, RENDER_MANIFEST,
-    pull_bundle, push_bundle, render_planner, fetch_events,
-    DAY_GRID_FIRST,
+    RMAPI, HERE, BASELINE_PDF,
+    pull_bundle, push_bundle, fetch_events,
+)
+from planner_configs import (
+    PlannerConfig, MOVE, RMPP,
+    date_for_day_grid_idx as cfg_date_for_idx,
+    day_grid_idx as cfg_day_grid_idx,
 )
 
-WATCHER_STATE = os.path.join(HERE, "move-watcher-state.json")
 
-# Move scene→PDF transform (calibrated 2026-05-02)
-SCENE_SCALE = 0.335
-SCENE_OFFSET_X = 125.0
-SCENE_OFFSET_Y = -13.6
+def scene_to_pdf(sx: float, sy: float, config: PlannerConfig) -> tuple[float, float]:
+    return sx * config.scene_scale + config.scene_offset_x, sy * config.scene_scale + config.scene_offset_y
 
 
-def scene_to_pdf(sx: float, sy: float) -> tuple[float, float]:
-    return sx * SCENE_SCALE + SCENE_OFFSET_X, sy * SCENE_SCALE + SCENE_OFFSET_Y
-
-
-def stroke_bbox_pdf(pts: list[tuple[float, float]]) -> tuple[float, float, float, float]:
-    pdf = [scene_to_pdf(x, y) for x, y in pts]
+def stroke_bbox_pdf(pts: list[tuple[float, float]], config: PlannerConfig) -> tuple[float, float, float, float]:
+    pdf = [scene_to_pdf(x, y, config) for x, y in pts]
     xs = [p[0] for p in pdf]; ys = [p[1] for p in pdf]
     return min(xs), min(ys), max(xs), max(ys)
 
@@ -261,46 +258,56 @@ def call_delete_event(event_id: str) -> dict:
         return json.load(r)
 
 
-def date_for_day_grid_idx(idx: int) -> date | None:
-    """Inverse of day_grid_idx: doc[69 + (DOY-1)*2] → date."""
-    if idx < DAY_GRID_FIRST or (idx - DAY_GRID_FIRST) % 2 != 0:
-        return None
-    doy = (idx - DAY_GRID_FIRST) // 2 + 1
-    return date(2026, 1, 1) + timedelta(days=doy - 1)
-
-
-def load_state() -> dict:
-    if os.path.exists(WATCHER_STATE):
-        with open(WATCHER_STATE) as f:
+def load_state(config: PlannerConfig) -> dict:
+    if os.path.exists(config.state_file):
+        with open(config.state_file) as f:
             return json.load(f)
     return {"processed_strokes": {}, "last_run": None}
 
 
-def save_state(state: dict):
-    with open(WATCHER_STATE, "w") as f:
+def save_state(state: dict, config: PlannerConfig):
+    with open(config.state_file, "w") as f:
         json.dump(state, f, indent=2)
 
 
-def cycle(work_dir: str = "/tmp/move-watch") -> dict:
-    """Run one full cycle. Returns a summary dict."""
-    summary = {"deleted": [], "added": [], "errors": []}
+def cycle(config: PlannerConfig, work_dir: str | None = None) -> dict:
+    """Run one full cycle for the given planner config. Returns a summary dict."""
+    summary = {"planner": config.name, "deleted": [], "added": [], "errors": []}
 
+    work_dir = work_dir or f"/tmp/{config.name}-watch"
     if os.path.exists(work_dir):
         shutil.rmtree(work_dir)
     os.makedirs(work_dir)
 
-    # 1) Pull bundle
-    rmdoc, bundle_dir = pull_bundle(work_dir)
+    # 1) Pull bundle (per-planner doc path)
+    rmdoc, bundle_dir = pull_bundle(work_dir, doc_path=config.doc_path)
 
     # 2) Load manifest + state
-    if not os.path.exists(RENDER_MANIFEST):
-        print("No render manifest yet — run move_render.py at least once first.", file=sys.stderr)
+    if not os.path.exists(config.manifest_file):
+        print(f"[{config.name}] no render manifest yet — running first render", file=sys.stderr)
+        # First render to seed the manifest
+        api_key = _resolve_calendar_key()
+        events_now = fetch_events("2026-01-01", "2026-12-31", api_key)
+        pdf_path = next(os.path.join(bundle_dir, f) for f in os.listdir(bundle_dir) if f.endswith(".pdf"))
+        # Build page_uuid_by_idx for the renderer
+        content_files = [f for f in os.listdir(bundle_dir) if f.endswith(".content")]
+        page_uuid_by_idx_local = {}
+        if content_files:
+            with open(os.path.join(bundle_dir, content_files[0])) as cf:
+                content_data = json.load(cf)
+            for i, p in enumerate(content_data.get("cPages", {}).get("pages", [])):
+                page_uuid_by_idx_local[i] = p.get("id")
+        by_uuid_local = config.render_fn(events_now, pdf_path, page_uuid_by_idx_local)
+        with open(config.manifest_file, "w") as mf:
+            json.dump({"by_page_uuid": by_uuid_local}, mf, indent=2)
+        push_bundle(bundle_dir, rmdoc, dest_dir=config.push_dir)
         return summary
-    with open(RENDER_MANIFEST) as f:
+
+    with open(config.manifest_file) as f:
         manifest = json.load(f)
     by_uuid = manifest.get("by_page_uuid", {})
 
-    state = load_state()
+    state = load_state(config)
     processed = state.setdefault("processed_strokes", {})
 
     # 3) Walk .rm files
@@ -328,7 +335,7 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
         idx = idx_by_uuid.get(page_uuid)
         if idx is None:
             continue
-        page_date = date_for_day_grid_idx(idx)
+        page_date = cfg_date_for_idx(config, idx)
         rm_path = os.path.join(rm_dir, rm_file)
         # Skip if content hash matches what we processed last cycle
         with open(rm_path, "rb") as f:
@@ -398,7 +405,7 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
 
             if is_snap_line(pts):
                 # Match against rendered events on this page
-                pdf_bbox = stroke_bbox_pdf(pts)
+                pdf_bbox = stroke_bbox_pdf(pts, config)
                 for ev in page_manifest:
                     if not ev.get("event_id"):
                         continue
@@ -435,41 +442,39 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
             with open(rm_path, "wb") as f:
                 write_blocks(f, kept)
 
-        # 5) Re-render planner from baseline using fresh Google state
-        api_key = os.environ.get("CALENDAR_API_KEY")
-        if not api_key:
-            out = subprocess.run(["railway", "variables", "-k"], capture_output=True, text=True, cwd=HERE)
-            for line in out.stdout.splitlines():
-                if line.startswith("CALENDAR_API_KEY="):
-                    api_key = line.split("=", 1)[1]; break
-        events = fetch_events("2026-05-01", "2026-05-31", api_key)
+        # 5) Re-render planner using fresh Google state via the planner's renderer
+        api_key = _resolve_calendar_key()
+        events = fetch_events("2026-01-01", "2026-12-31", api_key)
         pdf_path = next(os.path.join(bundle_dir, f) for f in os.listdir(bundle_dir) if f.endswith(".pdf"))
-        render_planner(events, pdf_path)
+        new_by_uuid = config.render_fn(events, pdf_path, page_uuid_by_idx)
+        with open(config.manifest_file, "w") as mf:
+            json.dump({"by_page_uuid": new_by_uuid}, mf, indent=2)
 
         # 6) Push bundle back
-        push_bundle(bundle_dir, rmdoc)
+        push_bundle(bundle_dir, rmdoc, dest_dir=config.push_dir)
 
-    # Even with no gestures, re-render if Google's events have changed since the
-    # rendered manifest was generated. This keeps the Move planner in sync with
-    # Google Calendar edits made elsewhere (web, phone, etc.).
+    # Even with no gestures, re-render if Google's events have changed since
+    # the manifest was last generated. Keeps planner in sync with edits made
+    # elsewhere (web, phone, the OTHER planner if patron is running both).
     if not (summary["deleted"] or summary["added"]):
         events_now = fetch_events("2026-01-01", "2026-12-31", _resolve_calendar_key())
         events_hash = _hash_events(events_now)
         last_hash = state.get("last_events_hash")
         if events_hash != last_hash:
-            print(f"Google events hash changed ({last_hash} → {events_hash}); re-rendering.")
+            print(f"[{config.name}] Google events hash changed; re-rendering.")
             pdf_path = next(os.path.join(bundle_dir, f) for f in os.listdir(bundle_dir) if f.endswith(".pdf"))
-            render_planner(events_now, pdf_path)
-            push_bundle(bundle_dir, rmdoc)
+            new_by_uuid = config.render_fn(events_now, pdf_path, page_uuid_by_idx)
+            with open(config.manifest_file, "w") as mf:
+                json.dump({"by_page_uuid": new_by_uuid}, mf, indent=2)
+            push_bundle(bundle_dir, rmdoc, dest_dir=config.push_dir)
             state["last_events_hash"] = events_hash
             summary["resynced"] = True
     else:
-        # Gestures fired — record current events hash so next idle cycle has a baseline
         events_now = fetch_events("2026-01-01", "2026-12-31", _resolve_calendar_key())
         state["last_events_hash"] = _hash_events(events_now)
 
     state["last_run"] = datetime.now(ZoneInfo("America/Chicago")).isoformat()
-    save_state(state)
+    save_state(state, config)
     return summary
 
 
@@ -494,9 +499,20 @@ def _hash_events(events: list) -> str:
 
 
 def main():
-    print("=== Move daemon cycle ===")
-    s = cycle()
-    print(json.dumps(s, indent=2))
+    import sys as _sys
+    only = _sys.argv[1] if len(_sys.argv) > 1 else None
+    configs = []
+    if only is None or only == "move":
+        configs.append(MOVE)
+    if only is None or only == "rmpp":
+        configs.append(RMPP)
+    for cfg in configs:
+        print(f"=== Daemon cycle: {cfg.name} ===")
+        try:
+            s = cycle(cfg)
+            print(json.dumps(s, indent=2))
+        except Exception as e:
+            print(f"[{cfg.name}] FAILED: {e}")
 
 
 if __name__ == "__main__":
