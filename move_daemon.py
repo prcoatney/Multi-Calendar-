@@ -1,6 +1,10 @@
 """
 Move planner watcher daemon.
 
+Performance: parses only .rm files whose content hash differs from the last
+cycle's seen-hash. Otherwise skips. Important since the bundle has ~180
+.rm sidecars and rmscene parsing is slow.
+
 Cycle:
 1. Pull bundle from reMarkable cloud.
 2. Compare each page's .rm sidecar strokes to last-processed state.
@@ -301,6 +305,9 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
 
     strokes_to_strip_per_page: dict[str, set] = {}
 
+    import hashlib
+    page_hashes = state.setdefault("page_hashes", {})
+
     for rm_file in sorted(os.listdir(rm_dir)):
         if not rm_file.endswith(".rm"):
             continue
@@ -310,8 +317,18 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
             continue
         page_date = date_for_day_grid_idx(idx)
         rm_path = os.path.join(rm_dir, rm_file)
+        # Skip if content hash matches what we processed last cycle
         with open(rm_path, "rb") as f:
-            blocks = list(read_blocks(f))
+            data = f.read()
+        h = hashlib.md5(data).hexdigest()
+        if page_hashes.get(page_uuid) == h:
+            continue
+        page_hashes[page_uuid] = h
+
+        # Suppress rmscene's noisy stdout warnings during read
+        import contextlib, io as _io
+        with contextlib.redirect_stdout(_io.StringIO()):
+            blocks = list(read_blocks(_io.BytesIO(data)))
         block_strokes = parse_strokes_from_blocks(blocks)
         if not block_strokes:
             continue
