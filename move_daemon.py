@@ -206,12 +206,25 @@ def claude_ocr_event(png_bytes: bytes) -> dict | None:
 
 
 def parse_time_str(s: str) -> tuple[int, int] | None:
-    """'7am' / '2:30pm' / '14:30' / '7:00 am' → (hour24, minute)."""
+    """'7am' / '2:30pm' / '14:30' / '7:00 am' / '9a' / '9a-11a' → (hour24, minute).
+
+    For ranges (`9a-11a` or `9-11am`), use the start time. Tolerates short
+    am/pm forms ('a', 'p') that handwriting often uses."""
     if not s: return None
     t = s.strip().lower().replace(" ", "")
-    pm = "pm" in t
-    am = "am" in t
-    t = t.replace("am", "").replace("pm", "")
+    # Take only the start of a range
+    for sep in ("-", "to", "–"):
+        if sep in t:
+            t = t.split(sep, 1)[0]
+            break
+    # Detect am/pm (long form first, then short single-letter suffix)
+    pm = "pm" in t or t.endswith("p")
+    am = "am" in t or t.endswith("a")
+    # Strip the marker
+    for marker in ("am", "pm", "p", "a"):
+        if t.endswith(marker):
+            t = t[:-len(marker)]
+            break
     parts = t.split(":")
     try:
         h = int(parts[0])
