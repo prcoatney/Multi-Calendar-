@@ -21,7 +21,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from zipfile import ZipFile
 
-RMAPI = "/Users/coat/claude/rmapi-new"
+RMAPI = os.environ.get("RMAPI_BIN") or shutil.which("rmapi") or "/Users/coat/claude/rmapi-new"
 PLANNER_PATH = "/MOVE/planner-2026.2.6.4-prcoatney@gmail.com"
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE_PDF = os.path.join(HERE, "move-planner-baseline.pdf")
