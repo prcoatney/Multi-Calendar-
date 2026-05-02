@@ -384,10 +384,12 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
                                 summary["added"].append({
                                     "title": parsed["title"], "time": parsed["time"], "date": page_date.isoformat(),
                                 })
-                                strokes_to_strip_per_page.setdefault(page_uuid, set()).add(id(blk))
-                                for ib in [blk2 for blk2, p in block_strokes
-                                           if blk2 is not blk and stroke_inside_rect(p, rect_scene, pad=2)]:
-                                    strokes_to_strip_per_page.setdefault(page_uuid, set()).add(id(ib))
+                                # Track strokes to strip by stable fingerprint
+                                # (id(blk) changes when re-parsing file in cleanup phase)
+                                strokes_to_strip_per_page.setdefault(page_uuid, set()).add(stroke_fingerprint(pts))
+                                for blk2, pts2 in block_strokes:
+                                    if blk2 is not blk and stroke_inside_rect(pts2, rect_scene, pad=2):
+                                        strokes_to_strip_per_page.setdefault(page_uuid, set()).add(stroke_fingerprint(pts2))
                                 handled = True
                             except Exception as e:
                                 summary["errors"].append(f"create event: {e}")
@@ -408,7 +410,7 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
                             })
                         except Exception as e:
                             summary["errors"].append(f"delete {ev['title']}: {e}")
-                        strokes_to_strip_per_page.setdefault(page_uuid, set()).add(id(blk))
+                        strokes_to_strip_per_page.setdefault(page_uuid, set()).add(stroke_fingerprint(pts))
                         handled = True
                         break
 
@@ -417,14 +419,18 @@ def cycle(work_dir: str = "/tmp/move-watch") -> dict:
 
     # 4) If anything happened, strip processed snap strokes from .rm and re-render + push
     if summary["deleted"] or summary["added"]:
-        for page_uuid, strip_ids in strokes_to_strip_per_page.items():
+        for page_uuid, strip_fps in strokes_to_strip_per_page.items():
             rm_path = os.path.join(rm_dir, page_uuid + ".rm")
             with open(rm_path, "rb") as f:
                 blocks = list(read_blocks(f))
             kept = []
             for b in blocks:
-                if type(b).__name__ == 'SceneLineItemBlock' and id(b) in strip_ids:
-                    continue
+                if type(b).__name__ == 'SceneLineItemBlock':
+                    v = b.item.value
+                    if v and hasattr(v, 'points') and v.points:
+                        pts2 = [(p.x, p.y) for p in v.points]
+                        if stroke_fingerprint(pts2) in strip_fps:
+                            continue
                 kept.append(b)
             with open(rm_path, "wb") as f:
                 write_blocks(f, kept)
